@@ -1,0 +1,15 @@
+﻿-- Geofence (simple rectangle) for zone mapping
+CREATE TABLE IF NOT EXISTS zone_geofences (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  zone_id VARCHAR(64) NOT NULL UNIQUE,
+  name VARCHAR(128) NOT NULL,
+  description VARCHAR(255) NULL,
+  min_lat DECIMAL(10,7) NOT NULL,
+  max_lat DECIMAL(10,7) NOT NULL,
+  min_lon DECIMAL(10,7) NOT NULL,
+  max_lon DECIMAL(10,7) NOT NULL,
+  priority INT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_geofence_zone FOREIGN KEY (zone_id) REFERENCES zones(zone_id)
+) ENGINE=InnoDB;
