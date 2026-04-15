@@ -1,4 +1,4 @@
-﻿import React from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import Overview from './pages/Overview.jsx';
 import ZoneDetail from './pages/ZoneDetail.jsx';
@@ -6,6 +6,7 @@ import MapView from './pages/MapView.jsx';
 import Alerts from './pages/Alerts.jsx';
 import Rules from './pages/Rules.jsx';
 import Devices from './pages/Devices.jsx';
+import { onConnectionChange, isUsingMock } from './api.js';
 
 const navItems = [
   { to: '/', label: '库区总览', icon: '◎' },
@@ -16,7 +17,11 @@ const navItems = [
   { to: '/devices', label: '采集终端', icon: '◌' }
 ];
 
-const AppShell = () => (
+const AppShell = () => {
+  const [isMock, setIsMock] = useState(isUsingMock());
+  useEffect(() => onConnectionChange(setIsMock), []);
+
+  return (
   <div className="app">
     <aside className="sidebar">
       <div className="brand">
@@ -45,10 +50,10 @@ const AppShell = () => (
       </nav>
       <div className="sidebar-footer">
         <div className="signal">
-          <span className="signal-dot" />
+          <span className={`signal-dot ${isMock ? 'signal-dot-warn' : ''}`} />
           <div>
-            <div className="signal-title">数据链路</div>
-            <div className="signal-subtitle">MQTT · REST</div>
+            <div className="signal-title">{isMock ? '模拟数据' : '数据链路'}</div>
+            <div className="signal-subtitle">{isMock ? 'API 不可用' : 'MQTT · REST'}</div>
           </div>
         </div>
         <div className="sidebar-note">v1.0 · Telemetry Console</div>
@@ -80,7 +85,8 @@ const AppShell = () => (
       </section>
     </main>
   </div>
-);
+  );
+};
 
 const App = () => (
   <BrowserRouter>

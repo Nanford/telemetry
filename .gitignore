@@ -25,3 +25,7 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+
+Pi记录.txt
+telemetry_agent.py
+telemetry_agent .py.bak

@@ -34,37 +34,57 @@ export const mockOverview = {
   zones: [
     {
       zone_id: 'A1',
-      name: '原料区 A1',
-      description: '烟叶原料堆放区',
+      name: '原料接收区 A1',
+      description: '烟叶原料进场、质检区域',
       latest: { temp_c: 18.4, rh: 62, ts: now.toISOString() },
       status: 'ok',
       status_reason: '稳定'
     },
     {
       zone_id: 'A2',
-      name: '原料区 A2',
-      description: '分级暂存区',
+      name: '初加工区 A2',
+      description: '分拣、预处理车间',
       latest: { temp_c: 20.7, rh: 68, ts: now.toISOString() },
       status: 'alert',
       status_reason: '湿度偏高'
     },
     {
       zone_id: 'A3',
-      name: '质检区 A3',
-      description: '抽检与静置区',
+      name: '醇化仓库 A3',
+      description: '核心储存区，温湿度重点监控',
       latest: { temp_c: 19.2, rh: 58, ts: now.toISOString() },
       status: 'ok',
       status_reason: '运行正常'
     },
     {
       zone_id: 'A4',
-      name: '包装区 A4',
-      description: '打包流转通道',
+      name: '成品仓库 A4',
+      description: '醇化完成品存放区',
+      latest: { temp_c: 17.8, rh: 55, ts: now.toISOString() },
+      status: 'ok',
+      status_reason: '运行正常'
+    },
+    {
+      zone_id: 'A5',
+      name: '装卸调度区 A5',
+      description: '出库装车、物流调度区',
       latest: null,
       status: 'offline',
       status_reason: '无最新数据'
     }
   ]
+};
+
+export const mockInsights = {
+  temp_alerts: 5,
+  rh_alerts: 2,
+  link_stability: 96.4
+};
+
+export const mockHealth = {
+  mqtt_status: 'online',
+  write_delay_sec: 0.3,
+  pending_alerts: 2
 };
 
 export const mockTrend = {
@@ -133,9 +153,9 @@ export const mockRules = [
 export const mockGeoLatest = [
   {
     device_id: 'pi4-001',
-    zone_id: 'A1',
-    lat: 30.6590017,
-    lon: 114.2137816,
+    zone_id: 'A3',
+    lat: 30.681732,
+    lon: 114.183271,
     alt_m: 92.1,
     speed_kmh: 0,
     ts: now.toISOString(),
@@ -143,9 +163,9 @@ export const mockGeoLatest = [
   },
   {
     device_id: 'pi4-002',
-    zone_id: 'B2',
-    lat: 30.6594211,
-    lon: 114.214221,
+    zone_id: null,
+    lat: 30.681850,
+    lon: 114.183500,
     alt_m: 91.5,
     speed_kmh: 0.4,
     ts: now.toISOString(),
@@ -156,23 +176,53 @@ export const mockGeoLatest = [
 export const mockGeofences = [
   {
     zone_id: 'A1',
-    name: '原料区 A1',
-    description: '北侧原料通道',
-    min_lat: 30.6587,
-    max_lat: 30.6594,
-    min_lon: 114.2134,
-    max_lon: 114.2142,
+    name: '原料接收区 A1',
+    description: '烟叶原料进场、质检区域',
+    min_lat: 30.681507,
+    max_lat: 30.681957,
+    min_lon: 114.182641,
+    max_lon: 114.182891,
     priority: 1
   },
   {
     zone_id: 'A2',
-    name: '原料区 A2',
-    description: '装卸缓冲区',
-    min_lat: 30.6594,
-    max_lat: 30.6602,
-    min_lon: 114.2134,
-    max_lon: 114.2142,
-    priority: 0
+    name: '初加工区 A2',
+    description: '分拣、预处理车间',
+    min_lat: 30.681507,
+    max_lat: 30.681957,
+    min_lon: 114.182891,
+    max_lon: 114.183141,
+    priority: 1
+  },
+  {
+    zone_id: 'A3',
+    name: '醇化仓库 A3',
+    description: '核心储存区，温湿度重点监控',
+    min_lat: 30.681507,
+    max_lat: 30.681957,
+    min_lon: 114.183141,
+    max_lon: 114.183401,
+    priority: 1
+  },
+  {
+    zone_id: 'A4',
+    name: '成品仓库 A4',
+    description: '醇化完成品存放区',
+    min_lat: 30.681507,
+    max_lat: 30.681957,
+    min_lon: 114.183401,
+    max_lon: 114.183651,
+    priority: 1
+  },
+  {
+    zone_id: 'A5',
+    name: '装卸调度区 A5',
+    description: '出库装车、物流调度区',
+    min_lat: 30.681507,
+    max_lat: 30.681957,
+    min_lon: 114.183651,
+    max_lon: 114.183901,
+    priority: 1
   }
 ];
 
@@ -192,9 +242,11 @@ export const mockDevices = [
 ];
 
 export const mockZones = [
-  { zone_id: 'A1', name: '原料区 A1', description: '烟叶原料堆放区' },
-  { zone_id: 'A2', name: '原料区 A2', description: '分级暂存区' },
-  { zone_id: 'A3', name: '质检区 A3', description: '抽检与静置区' }
+  { zone_id: 'A1', name: '原料接收区 A1', description: '烟叶原料进场、质检区域' },
+  { zone_id: 'A2', name: '初加工区 A2', description: '分拣、预处理车间' },
+  { zone_id: 'A3', name: '醇化仓库 A3', description: '核心储存区，温湿度重点监控' },
+  { zone_id: 'A4', name: '成品仓库 A4', description: '醇化完成品存放区' },
+  { zone_id: 'A5', name: '装卸调度区 A5', description: '出库装车、物流调度区' }
 ];
 
 export const mockSensors = [

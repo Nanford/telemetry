@@ -1,4 +1,4 @@
-﻿import {
+import {
   mockOverview,
   mockTrend,
   mockAlerts,
@@ -7,133 +7,143 @@
   mockGeofences,
   mockDevices,
   mockZones,
-  mockSensors
+  mockSensors,
+  mockInsights,
+  mockHealth
 } from './data/mock.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api/v1';
 
+/** Tracks whether the last fetch hit the real API or fell back to mock */
+let _lastFetchWasMock = false;
+const listeners = new Set();
+
+export const onConnectionChange = (fn) => {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+};
+export const isUsingMock = () => _lastFetchWasMock;
+
+const notify = (isMock) => {
+  if (_lastFetchWasMock !== isMock) {
+    _lastFetchWasMock = isMock;
+    listeners.forEach((fn) => fn(isMock));
+  }
+};
+
 const fetchJson = async (path, options = {}) => {
-  const response = await fetch(`${API_BASE}/${path}`, options);
+  const response = await fetch(`${API_BASE}/${path}`, {
+    ...options,
+    signal: options.signal
+  });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
   const payload = await response.json();
+  notify(false);
   return payload.data ?? payload;
 };
 
-export const getOverview = async () => {
-  try {
-    return await fetchJson('overview');
-  } catch {
-    return mockOverview;
-  }
+const withMockFallback = (fetcher, mockData) => {
+  return async (params, options) => {
+    try {
+      return await fetcher(params, options);
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      notify(true);
+      return mockData;
+    }
+  };
 };
 
-export const getTrend = async (params) => {
-  const query = new URLSearchParams(params).toString();
-  try {
-    return await fetchJson(`telemetry/trend?${query}`);
-  } catch {
-    return mockTrend;
-  }
-};
+export const getOverview = withMockFallback(
+  (_, opts) => fetchJson('overview', opts),
+  mockOverview
+);
 
-export const getAlerts = async () => {
-  try {
-    return await fetchJson('alerts');
-  } catch {
-    return mockAlerts;
-  }
-};
+export const getTrend = withMockFallback(
+  (params, opts) => {
+    const query = new URLSearchParams(params).toString();
+    return fetchJson(`telemetry/trend?${query}`, opts);
+  },
+  mockTrend
+);
 
-export const getRules = async () => {
-  try {
-    return await fetchJson('alert-rules');
-  } catch {
-    return mockRules;
-  }
-};
+export const getAlerts = withMockFallback(
+  (_, opts) => fetchJson('alerts', opts),
+  mockAlerts
+);
 
-export const createRule = async (payload) => {
-  return fetchJson('alert-rules', {
+export const getRules = withMockFallback(
+  (_, opts) => fetchJson('alert-rules', opts),
+  mockRules
+);
+
+export const createRule = (payload) =>
+  fetchJson('alert-rules', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-};
 
-export const updateRule = async (id, payload) => {
-  return fetchJson(`alert-rules/${id}`, {
+export const updateRule = (id, payload) =>
+  fetchJson(`alert-rules/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-};
 
-export const deleteRule = async (id) => {
-  return fetchJson(`alert-rules/${id}`, {
-    method: 'DELETE'
-  });
-};
+export const deleteRule = (id) =>
+  fetchJson(`alert-rules/${id}`, { method: 'DELETE' });
 
-export const getGeoLatest = async () => {
-  try {
-    return await fetchJson('geo/latest');
-  } catch {
-    return mockGeoLatest;
-  }
-};
+export const getGeoLatest = withMockFallback(
+  (_, opts) => fetchJson('geo/latest', opts),
+  mockGeoLatest
+);
 
-export const getGeofences = async () => {
-  try {
-    return await fetchJson('geofences');
-  } catch {
-    return mockGeofences;
-  }
-};
+export const getGeofences = withMockFallback(
+  (_, opts) => fetchJson('geofences', opts),
+  mockGeofences
+);
 
-export const saveGeofence = async (payload) => {
-  return fetchJson('geofences', {
+export const saveGeofence = (payload) =>
+  fetchJson('geofences', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-};
 
-export const updateGeofence = async (zoneId, payload) => {
-  return fetchJson(`geofences/${zoneId}`, {
+export const updateGeofence = (zoneId, payload) =>
+  fetchJson(`geofences/${zoneId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-};
 
-export const deleteGeofence = async (zoneId) => {
-  return fetchJson(`geofences/${zoneId}`, {
-    method: 'DELETE'
-  });
-};
+export const deleteGeofence = (zoneId) =>
+  fetchJson(`geofences/${zoneId}`, { method: 'DELETE' });
 
-export const getDevices = async () => {
-  try {
-    return await fetchJson('devices');
-  } catch {
-    return mockDevices;
-  }
-};
+export const getDevices = withMockFallback(
+  (_, opts) => fetchJson('devices', opts),
+  mockDevices
+);
 
-export const getZones = async () => {
-  try {
-    return await fetchJson('zones');
-  } catch {
-    return mockZones;
-  }
-};
+export const getZones = withMockFallback(
+  (_, opts) => fetchJson('zones', opts),
+  mockZones
+);
 
-export const getSensors = async () => {
-  try {
-    return await fetchJson('sensors');
-  } catch {
-    return mockSensors;
-  }
-};
+export const getSensors = withMockFallback(
+  (_, opts) => fetchJson('sensors', opts),
+  mockSensors
+);
+
+export const getInsights = withMockFallback(
+  (_, opts) => fetchJson('insights', opts),
+  mockInsights
+);
+
+export const getHealthSummary = withMockFallback(
+  (_, opts) => fetchJson('health-summary', opts),
+  mockHealth
+);

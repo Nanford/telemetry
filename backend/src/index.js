@@ -1,9 +1,9 @@
 ﻿const express = require('express');
 const cors = require('cors');
 const config = require('./config');
-const { query } = require('./db');
+const { pool, query } = require('./db');
 const { parseTime, toMysqlDatetime } = require('./utils');
-const { startIngest } = require('./ingest');
+const { startIngest, invalidateRuleCache, flushBuffer } = require('./ingest');
 
 const app = express();
 app.use(cors());
@@ -11,6 +11,12 @@ app.use(express.json({ limit: '2mb' }));
 
 const ok = (res, data) => res.json({ ok: true, data });
 const fail = (res, message, status = 400) => res.status(status).json({ ok: false, message });
+const toNumber = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+let mqttClient = null;
 
 app.get('/api/v1/health', async (_req, res) => {
   ok(res, { status: 'ok', time: new Date().toISOString() });
@@ -26,6 +32,7 @@ app.get('/api/v1/overview', async (_req, res) => {
         SELECT zone_id, MAX(ts) AS max_ts
         FROM telemetry_raw
         WHERE zone_id IS NOT NULL
+          AND ts >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)
         GROUP BY zone_id
       ) latest ON tr.zone_id = latest.zone_id AND tr.ts = latest.max_ts
     `);
@@ -53,13 +60,19 @@ app.get('/api/v1/overview', async (_req, res) => {
         status = 'ok';
         statusReason = '运行正常';
         const rulesForZone = ruleMap.get(zone.zone_id) || [];
+        const latestTemp = toNumber(latest.temp_c);
+        const latestRh = toNumber(latest.rh);
         for (const rule of rulesForZone) {
+          const tempHigh = toNumber(rule.temp_high);
+          const tempLow = toNumber(rule.temp_low);
+          const rhHigh = toNumber(rule.rh_high);
+          const rhLow = toNumber(rule.rh_low);
           const tempAlert =
-            (rule.temp_high !== null && latest.temp_c > rule.temp_high) ||
-            (rule.temp_low !== null && latest.temp_c < rule.temp_low);
+            latestTemp !== null &&
+            ((tempHigh !== null && latestTemp > tempHigh) || (tempLow !== null && latestTemp < tempLow));
           const rhAlert =
-            (rule.rh_high !== null && latest.rh > rule.rh_high) ||
-            (rule.rh_low !== null && latest.rh < rule.rh_low);
+            latestRh !== null &&
+            ((rhHigh !== null && latestRh > rhHigh) || (rhLow !== null && latestRh < rhLow));
           if (tempAlert || rhAlert) {
             status = 'alert';
             statusReason = '超出阈值';
@@ -99,6 +112,80 @@ app.get('/api/v1/overview', async (_req, res) => {
     ok(res, {
       zones: zoneCards,
       summary: summaryRows[0] || {}
+    });
+  } catch (err) {
+    fail(res, err.message, 500);
+  }
+});
+
+app.get('/api/v1/insights', async (_req, res) => {
+  try {
+    const [alertRows] = await query(
+      `
+        SELECT metric, COUNT(*) AS total
+        FROM alerts
+        WHERE last_trigger_at >= (UTC_TIMESTAMP() - INTERVAL 7 DAY)
+        GROUP BY metric
+      `
+    );
+
+    const alertCounts = { temp: 0, rh: 0 };
+    for (const row of alertRows) {
+      if (!row?.metric) continue;
+      alertCounts[row.metric] = Number(row.total) || 0;
+    }
+
+    const [deviceRows] = await query(
+      `
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN last_seen_at >= (UTC_TIMESTAMP() - INTERVAL 10 MINUTE) THEN 1 ELSE 0 END) AS active
+        FROM devices
+      `
+    );
+
+    const total = Number(deviceRows[0]?.total || 0);
+    const active = Number(deviceRows[0]?.active || 0);
+    const stability = total > 0 ? Number(((active / total) * 100).toFixed(1)) : null;
+
+    ok(res, {
+      temp_alerts: alertCounts.temp,
+      rh_alerts: alertCounts.rh,
+      link_stability: stability,
+      window_days: 7,
+      active_window_min: 10
+    });
+  } catch (err) {
+    fail(res, err.message, 500);
+  }
+});
+
+app.get('/api/v1/health-summary', async (_req, res) => {
+  try {
+    const mqttStatus = mqttClient ? (mqttClient.connected ? 'online' : 'offline') : 'unknown';
+
+    const [latencyRows] = await query(
+      `
+        SELECT TIMESTAMPDIFF(SECOND, MAX(ts), UTC_TIMESTAMP()) AS lag_seconds
+        FROM telemetry_raw
+      `
+    );
+    const lagSecondsRaw = latencyRows[0]?.lag_seconds;
+    const lagSeconds = lagSecondsRaw === null || lagSecondsRaw === undefined ? null : Number(lagSecondsRaw);
+
+    const [alertRows] = await query(
+      `
+        SELECT COUNT(*) AS total
+        FROM alerts
+        WHERE status = 'open'
+      `
+    );
+    const pendingAlerts = Number(alertRows[0]?.total || 0);
+
+    ok(res, {
+      mqtt_status: mqttStatus,
+      write_delay_sec: Number.isFinite(lagSeconds) ? lagSeconds : null,
+      pending_alerts: pendingAlerts
     });
   } catch (err) {
     fail(res, err.message, 500);
@@ -321,6 +408,7 @@ app.post('/api/v1/alert-rules', async (req, res) => {
       ]
     );
 
+    invalidateRuleCache();
     ok(res, { id: result.insertId });
   } catch (err) {
     fail(res, err.message, 500);
@@ -356,6 +444,7 @@ app.put('/api/v1/alert-rules/:id', async (req, res) => {
       ]
     );
 
+    invalidateRuleCache();
     ok(res, { id });
   } catch (err) {
     fail(res, err.message, 500);
@@ -365,6 +454,7 @@ app.put('/api/v1/alert-rules/:id', async (req, res) => {
 app.delete('/api/v1/alert-rules/:id', async (req, res) => {
   try {
     await query('DELETE FROM alert_rules WHERE id = ?', [req.params.id]);
+    invalidateRuleCache();
     ok(res, { id: req.params.id });
   } catch (err) {
     fail(res, err.message, 500);
@@ -609,10 +699,36 @@ app.post('/api/v1/sensors', async (req, res) => {
   }
 });
 
-app.listen(config.port, () => {
+let server;
+
+server = app.listen(config.port, () => {
   console.log(`API listening on ${config.port}`);
 });
 
-startIngest().catch((err) => {
-  console.error('MQTT ingest failed', err);
-});
+startIngest()
+  .then((client) => {
+    mqttClient = client;
+  })
+  .catch((err) => {
+    console.error('MQTT ingest failed', err);
+  });
+
+const shutdown = async (signal) => {
+  console.log(`\n[${signal}] shutting down...`);
+  if (mqttClient) {
+    mqttClient.end(false);
+    console.log('[shutdown] MQTT disconnected');
+  }
+  await flushBuffer();
+  console.log('[shutdown] buffer flushed');
+  if (server) {
+    server.close();
+    console.log('[shutdown] HTTP server closed');
+  }
+  await pool.end();
+  console.log('[shutdown] DB pool closed');
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

@@ -35,7 +35,7 @@ const MapPanel = ({ devices, geofences }) => {
 
   const center = bounds
     ? [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
-    : [30.659, 114.2138];
+    : [30.6817, 114.1833];
 
   return (
     <div className="card map-card">
@@ -73,7 +73,7 @@ const MapPanel = ({ devices, geofences }) => {
           ))}
 
           {devices
-            .filter((device) => device.gps_fix && toNumber(device.lat) !== null && toNumber(device.lon) !== null)
+            .filter((device) => toNumber(device.lat) !== null && toNumber(device.lon) !== null)
             .map((device) => (
               <CircleMarker
                 key={device.device_id}
@@ -95,7 +95,7 @@ const MapPanel = ({ devices, geofences }) => {
                 <div className="map-item-sub">{device.zone_id || '未分配区域'}</div>
               </div>
               <div className="map-item-coords">
-                {device.gps_fix && toNumber(device.lat) !== null && toNumber(device.lon) !== null
+                {toNumber(device.lat) !== null && toNumber(device.lon) !== null
                   ? `${toNumber(device.lat).toFixed(5)}, ${toNumber(device.lon).toFixed(5)}`
                   : '未定位'}
               </div>

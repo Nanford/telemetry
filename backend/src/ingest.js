@@ -1,9 +1,11 @@
-﻿const mqtt = require('mqtt');
+const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const { query } = require('./db');
+const { pool, query } = require('./db');
 const { safeJsonParse, toMysqlDatetime } = require('./utils');
+
+/* ---------- logging ---------- */
 
 const logDir = path.join(__dirname, '..', 'logs');
 const logFile = path.join(logDir, 'ingest-errors.log');
@@ -18,56 +20,81 @@ const logError = async (message, payload) => {
   await fs.promises.appendFile(logFile, entry, 'utf8');
 };
 
+/* ---------- alert helpers ---------- */
+
+const metricLabels = { temp: '温度', rh: '湿度' };
+
+const formatAlertMessage = (metric) => {
+  if (!metric) return '指标超出阈值';
+  return `${metricLabels[metric] || metric}超出阈值`;
+};
+
+/* ---------- rule cache ---------- */
+
+let ruleCache = [];       // all enabled rules
+let ruleCacheTs = 0;      // last refresh timestamp
+
+const refreshRuleCache = async () => {
+  const [rows] = await query('SELECT * FROM alert_rules WHERE enabled = 1');
+  ruleCache = rows;
+  ruleCacheTs = Date.now();
+};
+
+const getRulesFor = (zoneId, sensorId) => {
+  return ruleCache.filter(
+    (r) =>
+      (r.scope_type === 'zone' && r.zone_id === zoneId) ||
+      (r.scope_type === 'sensor' && r.sensor_id === sensorId)
+  );
+};
+
+/** Call this after alert_rules CRUD to force a reload */
+const invalidateRuleCache = () => {
+  ruleCacheTs = 0;
+};
+
+const ensureRuleCacheFresh = async () => {
+  if (Date.now() - ruleCacheTs > config.ingest.ruleCacheTtlMs) {
+    await refreshRuleCache();
+  }
+};
+
+/* ---------- topic parsing ---------- */
+
 const parseTopic = (topic) => {
   const parts = topic.split('/');
   if (parts[0] !== 'devices') return { device_id: null, zone_id: null };
-  if (parts.length === 3) {
-    return { device_id: parts[1], zone_id: null };
-  }
-  if (parts.length >= 4) {
-    return { device_id: parts[1], zone_id: parts[2] };
-  }
+  if (parts.length === 3) return { device_id: parts[1], zone_id: null };
+  if (parts.length >= 4) return { device_id: parts[1], zone_id: parts[2] };
   return { device_id: null, zone_id: null };
 };
 
 const resolveZoneByGps = async (lat, lon) => {
   if (lat === null || lat === undefined || lon === null || lon === undefined) return null;
   const [rows] = await query(
-    `\n      SELECT zone_id\n      FROM zone_geofences\n      WHERE ? BETWEEN min_lat AND max_lat\n        AND ? BETWEEN min_lon AND max_lon\n      ORDER BY priority DESC, updated_at DESC\n      LIMIT 1\n    `,
+    `SELECT zone_id FROM zone_geofences
+     WHERE ? BETWEEN min_lat AND max_lat AND ? BETWEEN min_lon AND max_lon
+     ORDER BY priority DESC, updated_at DESC LIMIT 1`,
     [lat, lon]
   );
   return rows[0]?.zone_id || null;
 };
+
+/* ---------- alert rule evaluation ---------- */
 
 const buildCondition = (metricCol, high, low, type) => {
   const clauses = [];
   const params = [];
 
   if (type === 'out') {
-    if (high !== null && high !== undefined) {
-      clauses.push(`${metricCol} > ?`);
-      params.push(high);
-    }
-    if (low !== null && low !== undefined) {
-      clauses.push(`${metricCol} < ?`);
-      params.push(low);
-    }
-    return clauses.length
-      ? { sql: clauses.join(' OR '), params }
-      : { sql: '0', params: [] };
+    if (high !== null && high !== undefined) { clauses.push(`${metricCol} > ?`); params.push(high); }
+    if (low !== null && low !== undefined) { clauses.push(`${metricCol} < ?`); params.push(low); }
+    return clauses.length ? { sql: clauses.join(' OR '), params } : { sql: '0', params: [] };
   }
 
-  if (high !== null && high !== undefined) {
-    clauses.push(`${metricCol} <= ?`);
-    params.push(high);
-  }
-  if (low !== null && low !== undefined) {
-    clauses.push(`${metricCol} >= ?`);
-    params.push(low);
-  }
-  return clauses.length
-    ? { sql: clauses.join(' AND '), params }
-    : { sql: '1', params: [] };
+  if (high !== null && high !== undefined) { clauses.push(`${metricCol} <= ?`); params.push(high); }
+  if (low !== null && low !== undefined) { clauses.push(`${metricCol} >= ?`); params.push(low); }
+  return clauses.length ? { sql: clauses.join(' AND '), params } : { sql: '1', params: [] };
 };
 
 const fetchWindowConsistency = async ({ scope, zone_id, sensor_id, metricCol, high, low, durationSec, type }) => {
@@ -75,25 +102,15 @@ const fetchWindowConsistency = async ({ scope, zone_id, sensor_id, metricCol, hi
   const where = [];
   const params = [];
 
-  if (scope === 'zone' && zone_id) {
-    where.push('zone_id = ?');
-    params.push(zone_id);
-  }
-  if (scope === 'sensor' && sensor_id) {
-    where.push('sensor_id = ?');
-    params.push(sensor_id);
-  }
-
-  where.push(`ts >= (UTC_TIMESTAMP() - INTERVAL ? SECOND)`);
+  if (scope === 'zone' && zone_id) { where.push('zone_id = ?'); params.push(zone_id); }
+  if (scope === 'sensor' && sensor_id) { where.push('sensor_id = ?'); params.push(sensor_id); }
+  where.push('ts >= (UTC_TIMESTAMP() - INTERVAL ? SECOND)');
   params.push(durationSec);
 
   const sql = `
-    SELECT
-      COUNT(*) AS total,
-      SUM(CASE WHEN ${condition.sql} THEN 1 ELSE 0 END) AS matched
-    FROM telemetry_raw
-    WHERE ${where.join(' AND ')}
-  `;
+    SELECT COUNT(*) AS total,
+           SUM(CASE WHEN ${condition.sql} THEN 1 ELSE 0 END) AS matched
+    FROM telemetry_raw WHERE ${where.join(' AND ')}`;
 
   const [rows] = await query(sql, [...condition.params, ...params]);
   const row = rows[0] || { total: 0, matched: 0 };
@@ -102,94 +119,39 @@ const fetchWindowConsistency = async ({ scope, zone_id, sensor_id, metricCol, hi
 
 const upsertAlert = async ({ rule, scope, zone_id, sensor_id, metric, currentValue, shouldOpen }) => {
   const [existingRows] = await query(
-    `
-      SELECT *
-      FROM alerts
-      WHERE rule_id = ? AND metric = ? AND status IN ('open', 'acked')
-      ORDER BY id DESC
-      LIMIT 1
-    `,
+    `SELECT * FROM alerts WHERE rule_id = ? AND metric = ? AND status IN ('open','acked')
+     ORDER BY id DESC LIMIT 1`,
     [rule.id, metric]
   );
-
   const existing = existingRows[0];
+
   if (shouldOpen) {
     if (existing) {
       await query(
-        `
-          UPDATE alerts
-          SET last_trigger_at = UTC_TIMESTAMP(), current_value = ?, message = ?
-          WHERE id = ?
-        `,
-        [currentValue, `${metric} 超出阈值`, existing.id]
+        `UPDATE alerts SET last_trigger_at = UTC_TIMESTAMP(), current_value = ?, message = ? WHERE id = ?`,
+        [currentValue, formatAlertMessage(metric), existing.id]
       );
-      return;
+    } else {
+      await query(
+        `INSERT INTO alerts (rule_id, zone_id, sensor_id, level, status, first_trigger_at, last_trigger_at, metric, current_value, message)
+         VALUES (?, ?, ?, 'warning', 'open', UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?, ?, ?)`,
+        [rule.id, scope === 'zone' ? zone_id : rule.zone_id, scope === 'sensor' ? sensor_id : rule.sensor_id, metric, currentValue, formatAlertMessage(metric)]
+      );
     }
-
-    await query(
-      `
-        INSERT INTO alerts
-          (rule_id, zone_id, sensor_id, level, status, first_trigger_at, last_trigger_at, metric, current_value, message)
-        VALUES
-          (?, ?, ?, 'warning', 'open', UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?, ?, ?)
-      `,
-      [
-        rule.id,
-        scope === 'zone' ? zone_id : rule.zone_id,
-        scope === 'sensor' ? sensor_id : rule.sensor_id,
-        metric,
-        currentValue,
-        `${metric} 超出阈值`
-      ]
-    );
-    return;
-  }
-
-  if (existing) {
-    await query(
-      `
-        UPDATE alerts
-        SET status = 'closed', recovered_at = UTC_TIMESTAMP()
-        WHERE id = ?
-      `,
-      [existing.id]
-    );
+  } else if (existing) {
+    await query(`UPDATE alerts SET status = 'closed', recovered_at = UTC_TIMESTAMP() WHERE id = ?`, [existing.id]);
   }
 };
 
-const evaluateRules = async (telemetry) => {
-  const scope = telemetry.zone_id ? 'zone' : 'sensor';
-
-  const [rules] = await query(
-    `
-      SELECT * FROM alert_rules
-      WHERE enabled = 1 AND (
-        (scope_type = 'zone' AND zone_id = ?) OR
-        (scope_type = 'sensor' AND sensor_id = ?)
-      )
-    `,
-    [telemetry.zone_id, telemetry.sensor_id]
-  );
-
+const evaluateRulesForTelemetry = async (telemetry) => {
+  const rules = getRulesFor(telemetry.zone_id, telemetry.sensor_id);
   if (!rules.length) return;
 
   for (const rule of rules) {
     const checks = [
-      {
-        metric: 'temp',
-        value: telemetry.temp_c,
-        high: rule.temp_high,
-        low: rule.temp_low,
-        column: 'temp_c'
-      },
-      {
-        metric: 'rh',
-        value: telemetry.rh,
-        high: rule.rh_high,
-        low: rule.rh_low,
-        column: 'rh'
-      }
-    ].filter((check) => check.high !== null || check.low !== null);
+      { metric: 'temp', value: telemetry.temp_c, high: rule.temp_high, low: rule.temp_low, column: 'temp_c' },
+      { metric: 'rh', value: telemetry.rh, high: rule.rh_high, low: rule.rh_low, column: 'rh' }
+    ].filter((c) => c.high !== null || c.low !== null);
 
     for (const check of checks) {
       if (check.value === null || check.value === undefined) continue;
@@ -198,67 +160,144 @@ const evaluateRules = async (telemetry) => {
         (check.low !== null && check.value < check.low);
 
       if (outOfRange) {
-        const window = await fetchWindowConsistency({
-          scope: rule.scope_type,
-          zone_id: telemetry.zone_id,
-          sensor_id: telemetry.sensor_id,
-          metricCol: check.column,
-          high: check.high,
-          low: check.low,
-          durationSec: rule.trigger_duration_sec,
-          type: 'out'
+        const w = await fetchWindowConsistency({
+          scope: rule.scope_type, zone_id: telemetry.zone_id, sensor_id: telemetry.sensor_id,
+          metricCol: check.column, high: check.high, low: check.low,
+          durationSec: rule.trigger_duration_sec, type: 'out'
         });
-
-        const sustained = window.total > 0 && window.total === window.matched;
-        await upsertAlert({
-          rule,
-          scope: rule.scope_type,
-          zone_id: telemetry.zone_id,
-          sensor_id: telemetry.sensor_id,
-          metric: check.metric,
-          currentValue: check.value,
-          shouldOpen: sustained
-        });
+        await upsertAlert({ rule, scope: rule.scope_type, zone_id: telemetry.zone_id, sensor_id: telemetry.sensor_id, metric: check.metric, currentValue: check.value, shouldOpen: w.total > 0 && w.total === w.matched });
       } else {
-        const window = await fetchWindowConsistency({
-          scope: rule.scope_type,
-          zone_id: telemetry.zone_id,
-          sensor_id: telemetry.sensor_id,
-          metricCol: check.column,
-          high: check.high,
-          low: check.low,
-          durationSec: rule.recover_duration_sec,
-          type: 'in'
+        const w = await fetchWindowConsistency({
+          scope: rule.scope_type, zone_id: telemetry.zone_id, sensor_id: telemetry.sensor_id,
+          metricCol: check.column, high: check.high, low: check.low,
+          durationSec: rule.recover_duration_sec, type: 'in'
         });
-
-        const sustained = window.total > 0 && window.total === window.matched;
-        if (sustained) {
-          await upsertAlert({
-            rule,
-            scope: rule.scope_type,
-            zone_id: telemetry.zone_id,
-            sensor_id: telemetry.sensor_id,
-            metric: check.metric,
-            currentValue: check.value,
-            shouldOpen: false
-          });
+        if (w.total > 0 && w.total === w.matched) {
+          await upsertAlert({ rule, scope: rule.scope_type, zone_id: telemetry.zone_id, sensor_id: telemetry.sensor_id, metric: check.metric, currentValue: check.value, shouldOpen: false });
         }
       }
     }
   }
 };
 
+/* ---------- batch buffer ---------- */
+
+let buffer = [];
+let flushTimer = null;
+
+const buildBulkInsertSql = (table, columns, rows) => {
+  const placeholders = rows.map(() => `(${columns.map(() => '?').join(',')})`).join(',');
+  const flat = rows.flat();
+  return { sql: `INSERT INTO ${table} (${columns.join(',')}) VALUES ${placeholders}`, params: flat };
+};
+
+const flushBuffer = async () => {
+  if (!buffer.length) return;
+  const batch = buffer.splice(0);
+
+  try {
+    // 1) bulk upsert devices
+    const deviceIds = [...new Set(batch.map((t) => t.device_id))];
+    for (const did of deviceIds) {
+      await pool.query(
+        `INSERT INTO devices (device_id, name, last_seen_at) VALUES (?, ?, UTC_TIMESTAMP())
+         ON DUPLICATE KEY UPDATE last_seen_at = VALUES(last_seen_at)`,
+        [did, did]
+      );
+    }
+
+    // 2) bulk upsert zones
+    const zoneIds = [...new Set(batch.map((t) => t.zone_id).filter(Boolean))];
+    for (const zid of zoneIds) {
+      await pool.query(
+        `INSERT INTO zones (zone_id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = name`,
+        [zid, zid]
+      );
+    }
+
+    // 3) bulk upsert sensors
+    const sensorMap = new Map();
+    for (const t of batch) {
+      sensorMap.set(t.sensor_id, t);
+    }
+    for (const t of sensorMap.values()) {
+      await pool.query(
+        `INSERT INTO sensors (sensor_id, device_id, zone_id) VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE zone_id = VALUES(zone_id)`,
+        [t.sensor_id, t.device_id, t.zone_id]
+      );
+    }
+
+    // 4) bulk insert telemetry_raw (single multi-row INSERT via pool.query)
+    const columns = ['device_id', 'sensor_id', 'zone_id', 'ts', 'temp_c', 'rh', 'gps_fix', 'lat', 'lon', 'alt_m', 'speed_kmh', 'payload_json'];
+    const rows = batch.map((t) => [
+      t.device_id, t.sensor_id, t.zone_id, t.ts,
+      t.temp_c, t.rh, t.gps_fix, t.lat, t.lon, t.alt_m, t.speed_kmh,
+      t.payload_json
+    ]);
+    const bulk = buildBulkInsertSql('telemetry_raw', columns, rows);
+    await pool.query(bulk.sql, bulk.params);
+
+    // 5) evaluate rules only for the latest reading per zone/sensor
+    await ensureRuleCacheFresh();
+    const latestByKey = new Map();
+    for (const t of batch) {
+      const key = t.zone_id || t.sensor_id;
+      const existing = latestByKey.get(key);
+      if (!existing || t.ts > existing.ts) {
+        latestByKey.set(key, t);
+      }
+    }
+    for (const t of latestByKey.values()) {
+      await evaluateRulesForTelemetry(t);
+    }
+  } catch (err) {
+    await logError('Batch flush failed', { error: err.message, batchSize: batch.length });
+  }
+};
+
+const scheduleFlush = () => {
+  if (flushTimer) return;
+  flushTimer = setTimeout(async () => {
+    flushTimer = null;
+    await flushBuffer();
+  }, config.ingest.flushIntervalMs);
+};
+
+const enqueue = async (telemetry) => {
+  buffer.push(telemetry);
+  if (buffer.length >= config.ingest.batchSize) {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    await flushBuffer();
+  } else {
+    scheduleFlush();
+  }
+};
+
+/* ---------- MQTT entry point ---------- */
+
 const startIngest = async () => {
+  await refreshRuleCache();
+
   const client = mqtt.connect(config.mqtt.url, {
     username: config.mqtt.username,
     password: config.mqtt.password,
     clientId: config.mqtt.clientId
   });
 
+  const subscribeAll = () => {
+    const topics = config.mqtt.topic.split(',').map((s) => s.trim());
+    topics.forEach((t) => client.subscribe(t));
+    console.log('[MQTT] subscribed:', topics.join(', '));
+  };
+
   client.on('connect', () => {
-    const topics = config.mqtt.topic.split(',').map((item) => item.trim());
-    topics.forEach((topic) => client.subscribe(topic));
+    console.log('[MQTT] connected');
+    subscribeAll();
   });
+
+  client.on('reconnect', () => console.log('[MQTT] reconnecting...'));
+  client.on('offline', () => console.log('[MQTT] offline'));
 
   client.on('message', async (topic, payloadBuffer) => {
     const payloadRaw = payloadBuffer.toString();
@@ -270,23 +309,35 @@ const startIngest = async () => {
 
     const topicInfo = parseTopic(topic);
     const deviceId = payload.device_id || topicInfo.device_id;
-    const gpsLat = payload.gps?.lat ?? null;
-    const gpsLon = payload.gps?.lon ?? null;
-    const gpsFix = payload.gps?.fix ? 1 : 0;
-    const zoneId =
-      payload.zone_id || topicInfo.zone_id || (gpsFix ? await resolveZoneByGps(gpsLat, gpsLon) : null) || null;
-
     if (!deviceId) {
       await logError('Missing device_id', { topic, payload });
       return;
     }
+
+    // Log device-reported errors (e.g. DHT checksum failures)
+    const deviceErrors = payload.errors;
+    if (Array.isArray(deviceErrors) && deviceErrors.length) {
+      await logError('Device reported errors', { device_id: deviceId, errors: deviceErrors });
+    }
+
+    // GPS: always store coordinates (real or fallback), mark gps_fix accordingly
+    const gps = payload.gps || {};
+    const isFallback = !!gps.fallback;
+    const hasRealFix = gps.fix && !isFallback;
+    const gpsLat = gps.lat ?? null;
+    const gpsLon = gps.lon ?? null;
+    const gpsFix = hasRealFix ? 1 : 0;
+
+    // Zone resolution: only use real GPS for geofence matching, never fallback coords
+    const zoneId =
+      payload.zone_id || topicInfo.zone_id || (hasRealFix ? await resolveZoneByGps(gpsLat, gpsLon) : null) || null;
 
     const sensorId = payload.sensor_id || (zoneId ? `${deviceId}-${zoneId}` : deviceId);
     const tsValue = payload.ts ? Number(payload.ts) : Date.now();
     const tsMs = tsValue > 1e12 ? tsValue : tsValue * 1000;
     const timestamp = new Date(tsMs);
 
-    const telemetry = {
+    await enqueue({
       device_id: deviceId,
       sensor_id: sensorId,
       zone_id: zoneId,
@@ -296,71 +347,10 @@ const startIngest = async () => {
       gps_fix: gpsFix,
       lat: gpsLat,
       lon: gpsLon,
-      alt_m: payload.gps?.alt_m ?? null,
-      speed_kmh: payload.gps?.speed_kmh ?? null
-    };
-
-    try {
-      await query(
-        `
-          INSERT INTO devices (device_id, name, last_seen_at)
-          VALUES (?, ?, UTC_TIMESTAMP())
-          ON DUPLICATE KEY UPDATE last_seen_at = VALUES(last_seen_at)
-        `,
-        [deviceId, deviceId]
-      );
-
-      if (zoneId) {
-        await query(
-          `
-            INSERT INTO zones (zone_id, name)
-            VALUES (?, ?)
-            ON DUPLICATE KEY UPDATE name = name
-          `,
-          [zoneId, zoneId]
-        );
-      }
-
-      await query(
-        `
-          INSERT INTO sensors (sensor_id, device_id, zone_id)
-          VALUES (?, ?, ?)
-          ON DUPLICATE KEY UPDATE zone_id = VALUES(zone_id)
-        `,
-        [sensorId, deviceId, zoneId]
-      );
-
-      await query(
-        `
-          INSERT INTO telemetry_raw
-            (device_id, sensor_id, zone_id, ts, temp_c, rh, gps_fix, lat, lon, alt_m, speed_kmh, payload_json)
-          VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        [
-          telemetry.device_id,
-          telemetry.sensor_id,
-          telemetry.zone_id,
-          telemetry.ts,
-          telemetry.temp_c,
-          telemetry.rh,
-          telemetry.gps_fix,
-          telemetry.lat,
-          telemetry.lon,
-          telemetry.alt_m,
-          telemetry.speed_kmh,
-          JSON.stringify(payload)
-        ]
-      );
-
-      await evaluateRules({
-        ...telemetry,
-        temp_c: telemetry.temp_c,
-        rh: telemetry.rh
-      });
-    } catch (err) {
-      await logError('Database insert failed', { error: err.message, topic, payload });
-    }
+      alt_m: gps.alt_m ?? null,
+      speed_kmh: gps.speed_kmh ?? null,
+      payload_json: JSON.stringify(payload)
+    });
   });
 
   client.on('error', async (err) => {
@@ -370,4 +360,4 @@ const startIngest = async () => {
   return client;
 };
 
-module.exports = { startIngest };
+module.exports = { startIngest, invalidateRuleCache, flushBuffer };

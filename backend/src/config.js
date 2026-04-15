@@ -24,6 +24,11 @@ const config = {
     password: process.env.MQTT_PASSWORD || undefined,
     topic: process.env.MQTT_TOPIC || 'devices/+/+/telemetry,devices/+/telemetry',
     clientId: process.env.MQTT_CLIENT_ID || `telemetry-api-${Math.random().toString(16).slice(2)}`
+  },
+  ingest: {
+    batchSize: toNumber(process.env.INGEST_BATCH_SIZE, 50),
+    flushIntervalMs: toNumber(process.env.INGEST_FLUSH_INTERVAL_MS, 2000),
+    ruleCacheTtlMs: toNumber(process.env.RULE_CACHE_TTL_MS, 30000)
   }
 };
 
