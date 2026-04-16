@@ -22,11 +22,11 @@ const ZoneCard = ({ zone, onSelect }) => {
         <div className="zone-metrics">
           <div>
             <div className="zone-metric-label">温度</div>
-            <div className={`zone-metric-value ${valueTone}`}>{zone.latest.temp_c}°C</div>
+            <div className={`zone-metric-value ${valueTone}`}>{zone.latest.temp_c != null ? `${zone.latest.temp_c}°C` : '--'}</div>
           </div>
           <div>
             <div className="zone-metric-label">湿度</div>
-            <div className={`zone-metric-value ${valueTone}`}>{zone.latest.rh}%</div>
+            <div className={`zone-metric-value ${valueTone}`}>{zone.latest.rh != null ? `${zone.latest.rh}%` : '--'}</div>
           </div>
           <div>
             <div className="zone-metric-label">更新</div>

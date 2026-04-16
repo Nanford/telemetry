@@ -2,6 +2,7 @@
 const cors = require('cors');
 const config = require('./config');
 const { pool, query } = require('./db');
+const { autoInitGeofences } = require('./geofence-auto');
 const { parseTime, toMysqlDatetime } = require('./utils');
 const { startIngest, invalidateRuleCache, flushBuffer } = require('./ingest');
 
@@ -33,6 +34,7 @@ app.get('/api/v1/overview', async (_req, res) => {
         FROM telemetry_raw
         WHERE zone_id IS NOT NULL
           AND ts >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)
+          AND (temp_c IS NOT NULL OR rh IS NOT NULL)
         GROUP BY zone_id
       ) latest ON tr.zone_id = latest.zone_id AND tr.ts = latest.max_ts
     `);
@@ -490,6 +492,16 @@ app.get('/api/v1/geofences', async (_req, res) => {
     ok(res, rows);
   } catch (err) {
     fail(res, err.message, 500);
+  }
+});
+
+app.post('/api/v1/geofences/auto-init', async (req, res) => {
+  try {
+    const zoneId = req.body?.zone_id || null;
+    const result = await autoInitGeofences(zoneId);
+    ok(res, result);
+  } catch (err) {
+    fail(res, err.message, err.statusCode || 500);
   }
 });
 

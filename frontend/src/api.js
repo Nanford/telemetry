@@ -36,10 +36,12 @@ const fetchJson = async (path, options = {}) => {
     ...options,
     signal: options.signal
   });
+  const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    const error = new Error(payload?.message || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
-  const payload = await response.json();
   notify(false);
   return payload.data ?? payload;
 };
@@ -122,6 +124,13 @@ export const updateGeofence = (zoneId, payload) =>
 
 export const deleteGeofence = (zoneId) =>
   fetchJson(`geofences/${zoneId}`, { method: 'DELETE' });
+
+export const autoInitGeofences = (payload = {}) =>
+  fetchJson('geofences/auto-init', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
 export const getDevices = withMockFallback(
   (_, opts) => fetchJson('devices', opts),
