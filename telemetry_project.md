@@ -237,7 +237,7 @@ CREATE TABLE alerts (
 * host：127.0.0.1
 * port：3306
 * user：root
-* password：Xhl@1608
+* password：见本地 `backend/.env`（不入库）
 
 但 PRD 要求在部署环境必须改为“应用专用账号”，并将账号密码放入 `.env`/systemd EnvironmentFile，避免代码与仓库泄露带来的安全风险。
 

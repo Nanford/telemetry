@@ -29,3 +29,7 @@ Thumbs.db
 Pi记录.txt
 telemetry_agent.py
 telemetry_agent .py.bak
+
+# screenshots (may contain real GPS / device data)
+screenshot_*.png
+screenshot_*.jpg
