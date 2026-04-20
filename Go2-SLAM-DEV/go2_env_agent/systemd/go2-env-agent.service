@@ -1,0 +1,16 @@
+[Unit]
+Description=Go2 Environment Telemetry Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/go2-env-agent
+EnvironmentFile=/opt/go2-env-agent/config/settings.env
+ExecStart=/opt/go2-env-agent/venv/bin/python -m app.main
+Restart=always
+RestartSec=5
+User=pi
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,7 @@
 node_modules/
+.pytest_cache/
+__pycache__/
+*.py[cod]
 
 # local env files
 .env
@@ -29,6 +32,7 @@ Thumbs.db
 Pi记录.txt
 telemetry_agent.py
 telemetry_agent .py.bak
+Go2-SLAM-DEV/环境备注说明.md
 
 # screenshots (may contain real GPS / device data)
 screenshot_*.png

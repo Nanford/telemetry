@@ -229,10 +229,11 @@ const flushBuffer = async () => {
     }
 
     // 4) bulk insert telemetry_raw (single multi-row INSERT via pool.query)
-    const columns = ['device_id', 'sensor_id', 'zone_id', 'ts', 'temp_c', 'rh', 'gps_fix', 'lat', 'lon', 'alt_m', 'speed_kmh', 'payload_json'];
+    const columns = ['device_id', 'sensor_id', 'zone_id', 'ts', 'temp_c', 'rh', 'gps_fix', 'lat', 'lon', 'alt_m', 'speed_kmh', 'pose_source', 'pose_fix', 'pos_x', 'pos_y', 'pos_z', 'yaw', 'point_id', 'sample_type', 'payload_json'];
     const rows = batch.map((t) => [
       t.device_id, t.sensor_id, t.zone_id, t.ts,
       t.temp_c, t.rh, t.gps_fix, t.lat, t.lon, t.alt_m, t.speed_kmh,
+      t.pose_source, t.pose_fix, t.pos_x, t.pos_y, t.pos_z, t.yaw, t.point_id, t.sample_type,
       t.payload_json
     ]);
     const bulk = buildBulkInsertSql('telemetry_raw', columns, rows);
@@ -328,7 +329,18 @@ const startIngest = async () => {
     const gpsLon = gps.lon ?? null;
     const gpsFix = hasRealFix ? 1 : 0;
 
-    // Zone resolution: only use real GPS for geofence matching, never fallback coords
+    // SLAM pose (Go2 indoor positioning)
+    const pose = payload.pose || {};
+    const poseSource = pose.source || null;
+    const poseFix = pose.fix ? 1 : 0;
+    const posX = pose.x ?? null;
+    const posY = pose.y ?? null;
+    const posZ = pose.z ?? null;
+    const yaw = pose.yaw ?? null;
+    const pointId = payload.point_id || null;
+    const sampleType = payload.sample_type || null;
+
+    // Zone resolution: prefer payload.zone_id (from SLAM point matcher), then topic, then GPS geofence
     const zoneId =
       payload.zone_id || topicInfo.zone_id || (hasRealFix ? await resolveZoneByGps(gpsLat, gpsLon) : null) || null;
 
@@ -349,6 +361,14 @@ const startIngest = async () => {
       lon: gpsLon,
       alt_m: gps.alt_m ?? null,
       speed_kmh: gps.speed_kmh ?? null,
+      pose_source: poseSource,
+      pose_fix: poseFix,
+      pos_x: posX,
+      pos_y: posY,
+      pos_z: posZ,
+      yaw: yaw,
+      point_id: pointId,
+      sample_type: sampleType,
       payload_json: JSON.stringify(payload)
     });
   });

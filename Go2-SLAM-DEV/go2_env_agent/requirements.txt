@@ -1,0 +1,15 @@
+# Core dependencies
+adafruit-circuitpython-dht
+board
+paho-mqtt<2.0
+pyyaml
+requests
+numpy
+
+# Go2 SDK2 dependencies (install separately on Pi):
+#   pip install cyclonedds
+#   git clone https://github.com/unitreerobotics/unitree_sdk2_python
+#   cd unitree_sdk2_python && pip install -e .
+
+# Dev/test dependencies
+pytest
