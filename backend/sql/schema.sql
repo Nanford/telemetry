@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS telemetry_raw (
   device_id VARCHAR(64) NOT NULL,
   sensor_id VARCHAR(64) NULL,
   zone_id VARCHAR(64) NULL,
+  area_id VARCHAR(64) NULL,
 
   ts DATETIME NOT NULL,          -- 采集时间（建议用 UTC 存）
   temp_c DECIMAL(5,2) NULL,
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS telemetry_raw (
 
   KEY idx_tr_sensor_ts (sensor_id, ts),
   KEY idx_tr_zone_ts (zone_id, ts),
+  KEY idx_tr_area_ts (area_id, ts),
   KEY idx_tr_device_ts (device_id, ts)
 ) ENGINE=InnoDB;
 

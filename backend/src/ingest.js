@@ -80,6 +80,58 @@ const resolveZoneByGps = async (lat, lon) => {
   return rows[0]?.zone_id || null;
 };
 
+const normalizeIncomingTelemetry = ({ topicInfo, payload, resolvedGpsZoneId = null }) => {
+  const deviceId = payload.device_id || topicInfo.device_id || null;
+
+  const gps = payload.gps || {};
+  const isFallback = !!gps.fallback;
+  const hasRealFix = gps.fix && !isFallback;
+  const gpsLat = gps.lat ?? null;
+  const gpsLon = gps.lon ?? null;
+  const gpsFix = hasRealFix ? 1 : 0;
+
+  const pose = payload.pose || {};
+  const poseSource = pose.source || null;
+  const poseFix = pose.fix ? 1 : 0;
+  const posX = pose.x ?? null;
+  const posY = pose.y ?? null;
+  const posZ = pose.z ?? null;
+  const yaw = pose.yaw ?? null;
+  const pointId = payload.point_id || null;
+  const sampleType = payload.sample_type || null;
+  const areaId = payload.area_id || null;
+  const zoneId = payload.zone_id || pointId || topicInfo.zone_id || resolvedGpsZoneId || null;
+
+  const sensorId = payload.sensor_id || (zoneId ? `${deviceId}-${zoneId}` : deviceId);
+  const tsValue = payload.ts ? Number(payload.ts) : Date.now();
+  const tsMs = tsValue > 1e12 ? tsValue : tsValue * 1000;
+  const timestamp = new Date(tsMs);
+
+  return {
+    device_id: deviceId,
+    sensor_id: sensorId,
+    zone_id: zoneId,
+    area_id: areaId,
+    ts: toMysqlDatetime(timestamp),
+    temp_c: payload.temp_c ?? null,
+    rh: payload.rh ?? null,
+    gps_fix: gpsFix,
+    lat: gpsLat,
+    lon: gpsLon,
+    alt_m: gps.alt_m ?? null,
+    speed_kmh: gps.speed_kmh ?? null,
+    pose_source: poseSource,
+    pose_fix: poseFix,
+    pos_x: posX,
+    pos_y: posY,
+    pos_z: posZ,
+    yaw: yaw,
+    point_id: pointId,
+    sample_type: sampleType,
+    payload_json: JSON.stringify(payload)
+  };
+};
+
 /* ---------- alert rule evaluation ---------- */
 
 const buildCondition = (metricCol, high, low, type) => {
@@ -229,9 +281,9 @@ const flushBuffer = async () => {
     }
 
     // 4) bulk insert telemetry_raw (single multi-row INSERT via pool.query)
-    const columns = ['device_id', 'sensor_id', 'zone_id', 'ts', 'temp_c', 'rh', 'gps_fix', 'lat', 'lon', 'alt_m', 'speed_kmh', 'pose_source', 'pose_fix', 'pos_x', 'pos_y', 'pos_z', 'yaw', 'point_id', 'sample_type', 'payload_json'];
+    const columns = ['device_id', 'sensor_id', 'zone_id', 'area_id', 'ts', 'temp_c', 'rh', 'gps_fix', 'lat', 'lon', 'alt_m', 'speed_kmh', 'pose_source', 'pose_fix', 'pos_x', 'pos_y', 'pos_z', 'yaw', 'point_id', 'sample_type', 'payload_json'];
     const rows = batch.map((t) => [
-      t.device_id, t.sensor_id, t.zone_id, t.ts,
+      t.device_id, t.sensor_id, t.zone_id, t.area_id, t.ts,
       t.temp_c, t.rh, t.gps_fix, t.lat, t.lon, t.alt_m, t.speed_kmh,
       t.pose_source, t.pose_fix, t.pos_x, t.pos_y, t.pos_z, t.yaw, t.point_id, t.sample_type,
       t.payload_json
@@ -321,56 +373,18 @@ const startIngest = async () => {
       await logError('Device reported errors', { device_id: deviceId, errors: deviceErrors });
     }
 
-    // GPS: always store coordinates (real or fallback), mark gps_fix accordingly
     const gps = payload.gps || {};
     const isFallback = !!gps.fallback;
     const hasRealFix = gps.fix && !isFallback;
-    const gpsLat = gps.lat ?? null;
-    const gpsLon = gps.lon ?? null;
-    const gpsFix = hasRealFix ? 1 : 0;
+    const resolvedGpsZoneId = hasRealFix ? await resolveZoneByGps(gps.lat ?? null, gps.lon ?? null) : null;
 
-    // SLAM pose (Go2 indoor positioning)
-    const pose = payload.pose || {};
-    const poseSource = pose.source || null;
-    const poseFix = pose.fix ? 1 : 0;
-    const posX = pose.x ?? null;
-    const posY = pose.y ?? null;
-    const posZ = pose.z ?? null;
-    const yaw = pose.yaw ?? null;
-    const pointId = payload.point_id || null;
-    const sampleType = payload.sample_type || null;
-
-    // Zone resolution: prefer payload.zone_id (from SLAM point matcher), then topic, then GPS geofence
-    const zoneId =
-      payload.zone_id || topicInfo.zone_id || (hasRealFix ? await resolveZoneByGps(gpsLat, gpsLon) : null) || null;
-
-    const sensorId = payload.sensor_id || (zoneId ? `${deviceId}-${zoneId}` : deviceId);
-    const tsValue = payload.ts ? Number(payload.ts) : Date.now();
-    const tsMs = tsValue > 1e12 ? tsValue : tsValue * 1000;
-    const timestamp = new Date(tsMs);
-
-    await enqueue({
-      device_id: deviceId,
-      sensor_id: sensorId,
-      zone_id: zoneId,
-      ts: toMysqlDatetime(timestamp),
-      temp_c: payload.temp_c ?? null,
-      rh: payload.rh ?? null,
-      gps_fix: gpsFix,
-      lat: gpsLat,
-      lon: gpsLon,
-      alt_m: gps.alt_m ?? null,
-      speed_kmh: gps.speed_kmh ?? null,
-      pose_source: poseSource,
-      pose_fix: poseFix,
-      pos_x: posX,
-      pos_y: posY,
-      pos_z: posZ,
-      yaw: yaw,
-      point_id: pointId,
-      sample_type: sampleType,
-      payload_json: JSON.stringify(payload)
-    });
+    await enqueue(
+      normalizeIncomingTelemetry({
+        topicInfo,
+        payload,
+        resolvedGpsZoneId
+      })
+    );
   });
 
   client.on('error', async (err) => {
@@ -380,4 +394,4 @@ const startIngest = async () => {
   return client;
 };
 
-module.exports = { startIngest, invalidateRuleCache, flushBuffer };
+module.exports = { startIngest, invalidateRuleCache, flushBuffer, normalizeIncomingTelemetry };

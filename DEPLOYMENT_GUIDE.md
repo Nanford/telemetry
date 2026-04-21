@@ -1,7 +1,7 @@
 # LeafVault 云端部署手册（Debian 单机）
 
 > 适用场景：Debian 云服务器，Mosquitto + MySQL + Node API + Nginx + React 前端**全栈同机**部署。
-> 域名：`dht.leenf.online`（替换为你自己的域名）。
+> 域名：`windoor.leenf.online`（替换为你自己的域名）。
 > MQTT Broker 本身的配置/排障见 [`mosquitto-broker-ops.md`](./mosquitto-broker-ops.md)，本文不重复。
 
 ---
@@ -10,7 +10,7 @@
 
 ```
                 ┌──────────────────────────────────────────────────┐
-                │  Debian 云机 (dht.leenf.online)                 │
+                │  Debian 云机 (windoor.leenf.online)                 │
                 │                                                  │
    采集端 ──►  │   :1883  Mosquitto  ◄──┐                        │
    (Pi4)       │                         │                        │
@@ -40,7 +40,7 @@
 
 ```bash
 # DNS（在域名服务商控制台操作）
-# 添加 A 记录：dht.leenf.online → <云机公网 IP>
+# 添加 A 记录：windoor.leenf.online → <云机公网 IP>
 
 # 系统更新 + 基础软件
 sudo apt update && sudo apt -y upgrade
@@ -212,7 +212,7 @@ cd /opt/telemetry/frontend
 
 # 构建期环境变量
 cat > .env.production <<'EOF'
-VITE_API_BASE=https://dht.leenf.online/api/v1
+VITE_API_BASE=https://windoor.leenf.online/api/v1
 EOF
 
 npm ci
@@ -236,7 +236,7 @@ sudo nano /etc/nginx/sites-available/telemetry
 ```nginx
 server {
     listen 80;
-    server_name dht.leenf.online;
+    server_name windoor.leenf.online;
     # 80 的流量 certbot 会接管并加上跳转，这里先留空即可
 
     root /var/www/telemetry;
@@ -279,7 +279,7 @@ sudo systemctl reload nginx
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d dht.leenf.online
+sudo certbot --nginx -d windoor.leenf.online
 # 按提示输入邮箱；选 2 (Redirect HTTP→HTTPS)
 
 # 自动续期（系统默认已开 certbot.timer，验证一下）
@@ -293,11 +293,11 @@ sudo certbot renew --dry-run
 |------|------|------|
 | Mosquitto 监听 | `sudo ss -ltnp \| grep 1883` | `0.0.0.0:1883` |
 | API 本地可通 | `curl http://127.0.0.1:8011/api/v1/health` | 200 + JSON |
-| API 经 Nginx 可通 | `curl https://dht.leenf.online/api/v1/health` | 200 + JSON |
-| 前端站点 | 浏览器打开 `https://dht.leenf.online` | 能进 dashboard |
+| API 经 Nginx 可通 | `curl https://windoor.leenf.online/api/v1/health` | 200 + JSON |
+| 前端站点 | 浏览器打开 `https://windoor.leenf.online` | 能进 dashboard |
 | 前端不走 mock | 浏览器 Network 面板 | 看到 `/api/v1/*` 请求且返回真实数据 |
 | MQTT 订阅 | `mosquitto_sub -h 127.0.0.1 -u telemetry_api -P '密码' -t 'devices/#' -v` | 有实时消息 |
-| HTTPS 证书 | `curl -I https://dht.leenf.online` | `HTTP/2 200`、证书有效 |
+| HTTPS 证书 | `curl -I https://windoor.leenf.online` | `HTTP/2 200`、证书有效 |
 
 ---
 
@@ -366,7 +366,7 @@ sudo nano /etc/cron.d/telemetry-backup
 | 浏览器打开显示 mock 数据 | `VITE_API_BASE` 没设 / dist 没重发 | 查 `frontend/.env.production`，重 `build` 再 `cp` |
 | `/api/v1/health` 502 | Node API 没起来 | `systemctl status telemetry-api` + 看日志 |
 | `/api/v1/*` 404 但 `/` 正常 | Nginx `proxy_pass` 末尾斜杠问题 | 按 §2.8 写法：`proxy_pass http://127.0.0.1:8011/api/;` |
-| 证书签不下来 | DNS 没生效 / 80 被挡 | `dig dht.leenf.online` + 放行 80 |
+| 证书签不下来 | DNS 没生效 / 80 被挡 | `dig windoor.leenf.online` + 放行 80 |
 | MQTT 收不到消息 | 见 `mosquitto-broker-ops.md` §5 | 按那份文档排查 |
 | API 日志 `ER_ACCESS_DENIED_ERROR` | `/etc/telemetry-api.env` 里 MYSQL_PASSWORD 错 | 重置后 `systemctl restart telemetry-api` |
 | API 日志 `ECONNREFUSED 127.0.0.1:1883` | Mosquitto 没起 / 端口变了 | `systemctl status mosquitto` |
@@ -392,7 +392,7 @@ sudo nano /etc/cron.d/telemetry-backup
 
 | 变量 | 作用 | 示例 |
 |------|------|------|
-| `VITE_API_BASE` | 前端调用的 API 根路径 | `https://dht.leenf.online/api/v1` |
+| `VITE_API_BASE` | 前端调用的 API 根路径 | `https://windoor.leenf.online/api/v1` |
 
 ⚠️ Vite 在**构建期**把这些变量内联到 JS bundle，运行期改不了 —— 改完必须重 `npm run build`。
 
@@ -403,7 +403,7 @@ sudo nano /etc/cron.d/telemetry-backup
 采集端 `/etc/telemetry-agent.env` 指向云端 Broker：
 
 ```ini
-MQTT_HOST=dht.leenf.online
+MQTT_HOST=windoor.leenf.online
 MQTT_PORT=1883
 MQTT_USERNAME=telemetry_user        # publish 账号
 MQTT_PASSWORD=<采集端密码>
