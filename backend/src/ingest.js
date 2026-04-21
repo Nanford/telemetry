@@ -100,7 +100,7 @@ const normalizeIncomingTelemetry = ({ topicInfo, payload, resolvedGpsZoneId = nu
   const pointId = payload.point_id || null;
   const sampleType = payload.sample_type || null;
   const areaId = payload.area_id || null;
-  const zoneId = payload.zone_id || pointId || topicInfo.zone_id || resolvedGpsZoneId || null;
+  const zoneId = payload.area_id || payload.zone_id || topicInfo.zone_id || resolvedGpsZoneId || null;
 
   const sensorId = payload.sensor_id || (zoneId ? `${deviceId}-${zoneId}` : deviceId);
   const tsValue = payload.ts ? Number(payload.ts) : Date.now();
