@@ -1,15 +1,27 @@
 # Core dependencies
 adafruit-circuitpython-dht
-board
+adafruit-blinka
 paho-mqtt<2.0
 pyyaml
 requests
 numpy
+pyserial
+sqlite-utils
 
-# Go2 SDK2 dependencies (install separately on Pi):
-#   pip install cyclonedds
-#   git clone https://github.com/unitreerobotics/unitree_sdk2_python
-#   cd unitree_sdk2_python && pip install -e .
+# Go2 SDK2 dependencies (install separately on Pi, order matters):
+#
+#   1. Compile CycloneDDS C library 0.10.2 from source first (see DEPLOY_TEST.md §1.5)
+#   2. export CYCLONEDDS_HOME=/usr/local
+#   3. pip install cyclonedds==0.10.2
+#   4. pip install git+https://github.com/unitreerobotics/unitree_sdk2_python.git
+#   5. Fix b2 import error:
+#      sed -i 's/from . import idl, utils, core, rpc, go2, b2/from . import idl, utils, core, rpc, go2/' \
+#        venv/lib/python3.11/site-packages/unitree_sdk2py/__init__.py
+#
+# IMPORTANT:
+#   - Python 3.11 required (3.13 incompatible with cyclonedds C extension)
+#   - CycloneDDS C lib and Python binding versions must match (both 0.10.2)
+#   - Debian Trixie: use libgpiod-dev instead of libgpiod2
 
 # Dev/test dependencies
 pytest

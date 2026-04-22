@@ -40,11 +40,11 @@ class TelemetryService:
             "ts": now_ts(),
             "temp_c": temp_c,
             "rh": rh,
-            "zone_id": match.point_id if match.matched else None,
+            "zone_id": match.zone_id,
+            "area_id": match.area_id,
             "gps": {"fix": False, "lat": None, "lon": None, "fallback": False},
             "pose": pose.to_dict(),
             "point_id": match.point_id,
-            "area_id": match.area_id,
             "sample_type": match.sample_type,
             "errors": errors,
         }

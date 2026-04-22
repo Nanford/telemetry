@@ -17,7 +17,7 @@ class DHTReader:
                 "Install adafruit-circuitpython-dht and board on Raspberry Pi."
             )
         pin = getattr(board, gpio_board_pin)
-        self.dht = adafruit_dht.DHT11(pin)
+        self.dht = adafruit_dht.DHT11(pin, use_pulseio=False)
 
     def read(self) -> Tuple[Optional[int], Optional[int], Optional[str]]:
         try:

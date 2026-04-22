@@ -18,6 +18,7 @@ points:
     radius: 1.0
   - id: P2
     name: Point 2
+    zone_id: Z2
     x: 5.0
     y: 0.0
     radius: 1.0
@@ -48,11 +49,13 @@ class TestExactMatch:
         result = matcher.match(_pose(0.0, 0.0))
         assert result.matched
         assert result.point_id == "P1"
+        assert result.zone_id == "P1"
 
     def test_hit_p2(self, matcher):
         result = matcher.match(_pose(5.0, 0.0))
         assert result.matched
         assert result.point_id == "P2"
+        assert result.zone_id == "Z2"
 
     def test_within_radius(self, matcher):
         result = matcher.match(_pose(0.5, 0.5))
@@ -63,6 +66,7 @@ class TestExactMatch:
         result = matcher.match(_pose(100.0, 100.0))
         assert not result.matched
         assert result.point_id is None
+        assert result.zone_id is None
         assert result.area_id == "test_area"
 
 
@@ -79,6 +83,7 @@ class TestNoFix:
         result = matcher.match(_pose(0.0, 0.0, fix=False))
         assert not result.matched
         assert result.point_id is None
+        assert result.zone_id is None
 
     def test_none_coords(self, matcher):
         pose = Pose(source="test", frame="test", fix=True, x=None, y=None, z=None, yaw=None)

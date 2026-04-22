@@ -48,12 +48,7 @@ class MqttUploader:
 
     def _on_publish(self, client, userdata, mid):
         with self._lock:
-            row_id = self._inflight.pop(mid, None)
-        if row_id is not None and self._spool is not None:
-            try:
-                self._spool.delete(row_id)
-            except Exception:
-                pass
+            self._inflight.pop(mid, None)
 
     def start(self):
         self.client.connect(self.cfg["MQTT_HOST"], int(self.cfg["MQTT_PORT"]), keepalive=60)
@@ -69,22 +64,27 @@ class MqttUploader:
         except Exception:
             pass
 
-    def flush(self, spool: Spool) -> int:
+    def flush(self, spool: Spool, batch_limit: int = 50) -> int:
         self._spool = spool
         flushed = 0
         if not self.connected:
             return flushed
 
-        while True:
+        seen: set = set()
+        while flushed < batch_limit:
             item = spool.peek()
             if not item:
                 break
             sid, pstr = item
+            if sid in seen:
+                break
+            seen.add(sid)
             info = self.client.publish(self.cfg["MQTT_TOPIC"], payload=pstr, qos=1, retain=False)
             if info.rc != mqtt.MQTT_ERR_SUCCESS:
                 break
             with self._lock:
                 self._inflight[info.mid] = sid
+            spool.delete(sid)
             flushed += 1
 
         return flushed

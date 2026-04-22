@@ -4,26 +4,31 @@
 area_id: warehouse_1f
 points:
   - id: A1
+    zone_id: A1
     name: 原料接收区 A1
     x: 2.1
     y: 1.8
     radius: 0.8
   - id: A2
+    zone_id: A2
     name: 初加工区 A2
     x: 6.4
     y: 2.0
     radius: 0.8
   - id: A3
+    zone_id: A3
     name: 醇化仓库 A3
     x: 10.2
     y: 2.1
     radius: 0.8
   - id: A4
+    zone_id: A4
     name: 成品仓库 A4
     x: 14.0
     y: 2.0
     radius: 0.8
   - id: A5
+    zone_id: A5
     name: 装卸调度区 A5
     x: 17.8
     y: 1.9

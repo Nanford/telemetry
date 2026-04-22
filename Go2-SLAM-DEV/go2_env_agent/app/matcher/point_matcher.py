@@ -15,12 +15,19 @@ class PointMatcher:
         self._dwell_count = dwell_count
         self._dwell_tracker: Dict[str, int] = {}
 
+    def _point_by_id(self, point_id: str) -> Dict:
+        return next(point for point in self.points if point["id"] == point_id)
+
+    def _zone_id_for_point(self, point: Dict) -> str:
+        return point.get("zone_id") or point["id"]
+
     def match(self, pose: Pose) -> PointMatch:
         if not pose.fix or pose.x is None or pose.y is None:
             self._dwell_tracker.clear()
             return PointMatch(
                 matched=False,
                 area_id=self.area_id,
+                zone_id=None,
                 point_id=None,
                 distance=None,
                 sample_type="timed",
@@ -40,6 +47,7 @@ class PointMatcher:
             return PointMatch(
                 matched=False,
                 area_id=self.area_id,
+                zone_id=None,
                 point_id=None,
                 distance=None,
                 sample_type="timed",
@@ -59,6 +67,7 @@ class PointMatcher:
         return PointMatch(
             matched=True,
             area_id=self.area_id,
+            zone_id=self._zone_id_for_point(self._point_by_id(best_id)),
             point_id=best_id,
             distance=round(best_dist, 4),
             sample_type=sample_type,

@@ -29,6 +29,7 @@ class Pose:
 class PointMatch:
     matched: bool
     area_id: Optional[str]
+    zone_id: Optional[str]
     point_id: Optional[str]
     distance: Optional[float]
     sample_type: str = "timed"
@@ -41,6 +42,7 @@ class TelemetryRecord:
     temp_c: Optional[int]
     rh: Optional[int]
     pose: Pose
+    zone_id: Optional[str]
     area_id: Optional[str]
     point_id: Optional[str]
     sample_type: str = "timed"
@@ -53,7 +55,7 @@ class TelemetryRecord:
             "temp_c": self.temp_c,
             "rh": self.rh,
             "pose": self.pose.to_dict(),
-            "zone_id": self.point_id,
+            "zone_id": self.zone_id if self.zone_id is not None else self.point_id,
             "point_id": self.point_id,
             "area_id": self.area_id,
             "sample_type": self.sample_type,

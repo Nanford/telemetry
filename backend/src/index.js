@@ -312,6 +312,78 @@ app.get('/api/v1/geo/trail', async (req, res) => {
   }
 });
 
+app.get('/api/v1/slam/points', (_req, res) => {
+  ok(res, { area: config.slam.area, points: config.slam.points });
+});
+
+app.get('/api/v1/slam/latest', async (_req, res) => {
+  try {
+    const [rows] = await query(`
+      SELECT tr.device_id, tr.pos_x, tr.pos_y, tr.pos_z, tr.yaw,
+             tr.point_id, tr.area_id, tr.temp_c, tr.rh, tr.ts
+      FROM telemetry_raw tr
+      INNER JOIN (
+        SELECT device_id, MAX(ts) AS max_ts
+        FROM telemetry_raw
+        WHERE pose_source = 'go2_slam' AND pose_fix = 1
+          AND pos_x IS NOT NULL AND pos_y IS NOT NULL
+        GROUP BY device_id
+      ) latest ON tr.device_id = latest.device_id AND tr.ts = latest.max_ts
+      WHERE tr.pose_source = 'go2_slam'
+    `);
+    ok(res, rows);
+  } catch (err) {
+    fail(res, err.message, 500);
+  }
+});
+
+app.get('/api/v1/slam/trail', async (req, res) => {
+  try {
+    const deviceId = req.query.device_id;
+    const minutes = Number(req.query.minutes || 60);
+    if (!deviceId) return fail(res, 'device_id 必填');
+
+    const [rows] = await query(
+      `
+        SELECT ts, pos_x, pos_y, point_id
+        FROM telemetry_raw
+        WHERE device_id = ?
+          AND pose_source = 'go2_slam'
+          AND pose_fix = 1
+          AND pos_x IS NOT NULL AND pos_y IS NOT NULL
+          AND ts >= (UTC_TIMESTAMP() - INTERVAL ? MINUTE)
+        ORDER BY ts ASC
+        LIMIT 500
+      `,
+      [deviceId, minutes]
+    );
+    ok(res, rows);
+  } catch (err) {
+    fail(res, err.message, 500);
+  }
+});
+
+app.get('/api/v1/slam/readings', async (_req, res) => {
+  try {
+    const [rows] = await query(`
+      SELECT tr.point_id, tr.temp_c, tr.rh, tr.ts, tr.device_id
+      FROM telemetry_raw tr
+      INNER JOIN (
+        SELECT point_id, MAX(ts) AS max_ts
+        FROM telemetry_raw
+        WHERE pose_source = 'go2_slam'
+          AND point_id IS NOT NULL
+          AND (temp_c IS NOT NULL OR rh IS NOT NULL)
+        GROUP BY point_id
+      ) latest ON tr.point_id = latest.point_id AND tr.ts = latest.max_ts
+      WHERE tr.pose_source = 'go2_slam'
+    `);
+    ok(res, rows);
+  } catch (err) {
+    fail(res, err.message, 500);
+  }
+});
+
 app.get('/api/v1/alerts', async (req, res) => {
   try {
     const { zone_id, status, level, start, end } = req.query;

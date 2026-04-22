@@ -255,3 +255,51 @@ export const mockSensors = [
 ];
 
 export const mockHourlySeries = makeHourly();
+
+export const mockSlamPoints = {
+  area: { area_id: 'warehouse_1f', name: '一楼仓库', width: 20, height: 6 },
+  points: [
+    { id: 'A1', name: '原料接收区', x: 2.1, y: 1.8, radius: 0.8 },
+    { id: 'A2', name: '初加工区', x: 6.4, y: 2.0, radius: 0.8 },
+    { id: 'A3', name: '醇化仓库', x: 10.2, y: 2.1, radius: 0.8 },
+    { id: 'A4', name: '成品仓库', x: 14.0, y: 2.0, radius: 0.8 },
+    { id: 'A5', name: '装卸调度区', x: 17.8, y: 1.9, radius: 0.8 }
+  ]
+};
+
+export const mockSlamLatest = [
+  {
+    device_id: 'go2_01',
+    pos_x: 10.21,
+    pos_y: 2.09,
+    pos_z: 0.32,
+    yaw: 0.03,
+    point_id: 'A3',
+    area_id: 'warehouse_1f',
+    temp_c: 25,
+    rh: 57,
+    ts: now.toISOString()
+  }
+];
+
+const trailPath = [
+  [2.1, 1.8], [3.5, 1.85], [4.9, 1.9], [6.4, 2.0], [7.8, 2.0],
+  [9.2, 2.05], [10.2, 2.1], [11.5, 2.05], [12.8, 2.0], [14.0, 2.0],
+  [15.3, 1.95], [16.5, 1.92], [17.8, 1.9], [16.5, 1.92], [15.0, 1.95],
+  [14.0, 2.0], [12.5, 2.0], [11.0, 2.05], [10.2, 2.09]
+];
+
+export const mockSlamTrail = trailPath.map(([x, y], i) => ({
+  ts: new Date(now.getTime() - (trailPath.length - 1 - i) * 30000).toISOString(),
+  pos_x: x,
+  pos_y: y,
+  point_id: null
+}));
+
+export const mockSlamReadings = [
+  { point_id: 'A1', temp_c: 24.8, rh: 58, ts: new Date(now.getTime() - 5 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A2', temp_c: 25.0, rh: 57, ts: new Date(now.getTime() - 4 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A3', temp_c: 24.9, rh: 58, ts: new Date(now.getTime() - 3 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A4', temp_c: 24.8, rh: 58, ts: new Date(now.getTime() - 2 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A5', temp_c: 25.1, rh: 56, ts: new Date(now.getTime() - 60000).toISOString(), device_id: 'go2_01' }
+];

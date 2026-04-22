@@ -1179,9 +1179,58 @@ def build_payload(device_id, ts, pose, temp_c, rh, area_id, point_id, errors):
 └─ venv/
 ```
 
-## 16.2 systemd 服务建议
+## 16.2 网络配置
 
-```ini
+树莓派需要同时连接 Go2（位姿数据）和外网（MQTT 上传），网卡分工如下：
+
+| 网卡 | 用途 | IP 配置 |
+|------|------|---------|
+| eth0 | 网线直连 Go2 | 静态 `192.168.123.100/24` |
+| wlan0 / usb0(4G) | 外网上行（MQTT/HTTP） | DHCP 或运营商分配 |
+
+### 配置 eth0 静态 IP（NetworkManager）
+
+```bash
+sudo nmcli con add type ethernet ifname eth0 con-name go2-link \
+  ip4 192.168.123.100/24 gw4 192.168.123.161
+sudo nmcli con up go2-link
+```
+
+验证连通性：
+
+```bash
+ping -c 2 192.168.123.161
+```
+
+### 备选：systemd-networkd 方式
+
+如未安装 NetworkManager，使用 systemd-networkd：
+
+```bash
+sudo tee /etc/systemd/network/10-eth0-go2.network <<'EOF'
+[Match]
+Name=eth0
+
+[Network]
+Address=192.168.123.100/24
+EOF
+
+sudo systemctl restart systemd-networkd
+```
+
+### 注意事项
+
+- Go2 默认 IP 为 `192.168.123.161`，网段 `192.168.123.0/24`
+- 不要给 eth0 配默认网关（避免外网流量走 Go2），上面的 `gw4` 参数仅用于该子网路由；如果发现外网不通，删掉默认路由：`sudo ip route del default via 192.168.123.161`
+- `settings.env` 中 `GO2_NET_IFACE=eth0` 与此处网卡对应，如改用 WiFi AP 连接 Go2 则改为 `wlan0`
+- 该配置持久化，重启后自动生效
+
+## 16.3 systemd 服务配置
+
+### 创建服务文件
+
+```bash
+sudo tee /etc/systemd/system/go2-env-agent.service <<'EOF'
 [Unit]
 Description=Go2 Environment Telemetry Agent
 After=network-online.target
@@ -1198,9 +1247,52 @@ User=pi
 
 [Install]
 WantedBy=multi-user.target
+EOF
 ```
 
-## 16.3 日志建议
+### 启用并启动
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable go2-env-agent    # 开机自启
+sudo systemctl start go2-env-agent     # 立即启动
+```
+
+### 日常运维命令
+
+```bash
+sudo systemctl status go2-env-agent    # 查看状态
+sudo systemctl stop go2-env-agent      # 停止
+sudo systemctl restart go2-env-agent   # 重启
+sudo systemctl disable go2-env-agent   # 取消开机自启
+journalctl -u go2-env-agent -f         # 实时日志
+journalctl -u go2-env-agent -n 50      # 最近50条日志
+```
+
+### 注销旧服务（telemetry-agent）
+
+如果之前部署过 GPS 版本的 `telemetry-agent.service`，需要先注销：
+
+```bash
+sudo systemctl stop telemetry-agent.service
+sudo systemctl disable telemetry-agent.service
+sudo rm /etc/systemd/system/telemetry-agent.service
+sudo systemctl daemon-reload
+```
+
+### 验证 MQTT 数据上报
+
+在 Pi 上另开终端，订阅 MQTT topic 查看实时数据：
+
+```bash
+sudo apt install -y mosquitto-clients
+
+mosquitto_sub -h <MQTT_HOST> -p <MQTT_PORT> \
+  -u <MQTT_USERNAME> -P <MQTT_PASSWORD> \
+  -t "devices/go2_01/#" -v
+```
+
+## 16.4 日志建议
 
 建议记录以下日志：
 

@@ -4,8 +4,8 @@
 
 ### 1.1 系统要求
 
-- Raspberry Pi 4B（已验证：Raspberry Pi OS 64-bit, kernel 6.12.75）
-- Python 3.8+
+- Raspberry Pi 4B（已验证：Raspberry Pi OS 64-bit, Debian Trixie, kernel 6.12.75）
+- **Python 3.11**（必须，系统自带的 3.13 与 cyclonedds 不兼容，需源码编译安装）
 - Pi 与 Go2 通过网线直连或同交换机（同网段）
 - Pi 具备 4G 上网能力（用于 MQTT 上报）
 
@@ -25,7 +25,33 @@ sudo ip addr add 192.168.123.100/24 dev eth0
 ping 192.168.123.15
 ```
 
-### 1.3 项目部署
+### 1.3 源码编译 Python 3.11（必须）
+
+系统自带 Python 3.13 与 cyclonedds C 扩展不兼容（`_Py_IsFinalizing` API 变更），必须安装 3.11。
+
+```bash
+# 安装编译依赖
+sudo apt-get install -y build-essential libssl-dev zlib1g-dev \
+  libncurses-dev libreadline-dev libsqlite3-dev libgdbm-dev \
+  libbz2-dev libexpat1-dev liblzma-dev libffi-dev uuid-dev
+
+# 下载编译 Python 3.11（Pi4B 大约 10-15 分钟）
+cd /tmp
+wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
+tar xzf Python-3.11.9.tgz
+cd Python-3.11.9
+./configure --enable-optimizations --prefix=/usr/local/python3.11
+make -j$(nproc)
+sudo make altinstall
+
+# 验证
+/usr/local/python3.11/bin/python3.11 --version
+# 应输出: Python 3.11.9
+```
+
+> **注意**：如果 wget 下载失败（Pi 网络不稳定），可在本地电脑下载后 `scp` 传到 Pi。
+
+### 1.4 项目部署
 
 ```bash
 # 创建部署目录
@@ -39,47 +65,94 @@ scp -r go2_env_agent/* pi@<PI_IP>:/opt/go2-env-agent/
 # 方法二：U盘拷贝后
 cp -r /media/pi/USB/go2_env_agent/* /opt/go2-env-agent/
 
-# 创建 Python 虚拟环境
+# 用 Python 3.11 创建虚拟环境（不要用系统默认的 python3）
 cd /opt/go2-env-agent
-python3 -m venv venv
+/usr/local/python3.11/bin/python3.11 -m venv venv
 source venv/bin/activate
+python --version  # 确认显示 Python 3.11.9
 ```
 
-### 1.4 安装依赖
+### 1.5 编译安装 CycloneDDS C 库
+
+cyclonedds Python 绑定需要先安装对应版本的 C 库。版本必须一致，都用 **0.10.2**。
 
 ```bash
-# 激活虚拟环境
+# 安装编译工具
+sudo apt-get install -y cmake gcc g++ git
+
+# 编译 CycloneDDS C 库 0.10.2
+cd /tmp
+git clone https://github.com/eclipse-cyclonedds/cyclonedds.git --branch 0.10.2 --depth 1
+cd cyclonedds
+mkdir build && cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_IDLC=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
+make -j$(nproc) ddsc
+sudo make install
+sudo ldconfig
+```
+
+> **网络问题**：如果 `git clone` 访问 GitHub 失败（GnuTLS recv error），可在本地电脑下载
+> `https://github.com/eclipse-cyclonedds/cyclonedds/archive/refs/tags/0.10.2.tar.gz`
+> 后 `scp` 传到 Pi 解压编译。
+>
+> **编译报错 ddsperf**：如果遇到 `target pattern contains no '%'` 错误，
+> 使用 `make -j$(nproc) ddsc` 只编译核心库，跳过 ddsperf 工具。
+
+### 1.6 安装 Python 依赖
+
+```bash
 cd /opt/go2-env-agent
 source venv/bin/activate
 
-# 安装基础依赖
-pip install paho-mqtt==1.6.1 pyyaml requests numpy pytest
+# 安装 CycloneDDS Python 绑定（版本必须与 C 库匹配）
+export CYCLONEDDS_HOME=/usr/local
+pip install cyclonedds==0.10.2
 
-# 安装 DHT11 传感器库（需要 Pi 的 GPIO 支持）
-pip install adafruit-circuitpython-dht
-sudo apt-get install -y libgpiod2
+# 安装 Unitree SDK2 Python（不在 PyPI 上，需从 GitHub 安装）
+pip install git+https://github.com/unitreerobotics/unitree_sdk2_python.git
+# 或者本地安装：
+#   cd /tmp && git clone https://github.com/unitreerobotics/unitree_sdk2_python.git
+#   cd unitree_sdk2_python && pip install .
 
-# 安装 CycloneDDS（Go2 SDK2 的 DDS 通信层）
-pip install cyclonedds
+# 修复 unitree_sdk2py 的 b2 导入问题（B2 模块与 Go2 无关，但会阻塞导入）
+sed -i 's/from . import idl, utils, core, rpc, go2, b2/from . import idl, utils, core, rpc, go2/' \
+  venv/lib/python3.11/site-packages/unitree_sdk2py/__init__.py
 
-# 安装 Unitree SDK2 Python
-cd /tmp
-git clone https://github.com/unitreerobotics/unitree_sdk2_python.git
-cd unitree_sdk2_python
-pip install -e .
-cd /opt/go2-env-agent
+# 安装 DHT11 传感器库（adafruit-blinka 提供 board 模块，不要装 PyPI 上的 "board" 包）
+pip install adafruit-blinka adafruit-circuitpython-dht
+sudo apt-get install -y libgpiod-dev gpiod
+# 注意：Debian Trixie 中包名是 libgpiod-dev，不是 libgpiod2
+
+# 安装其他基础依赖
+pip install paho-mqtt<2.0 pyyaml sqlite-utils requests numpy pyserial pytest
 ```
 
-### 1.5 验证依赖安装
+### 1.7 验证依赖安装
 
 ```bash
 source /opt/go2-env-agent/venv/bin/activate
 
-python3 -c "import paho.mqtt.client; print('paho-mqtt OK')"
-python3 -c "import yaml; print('pyyaml OK')"
-python3 -c "import board; import adafruit_dht; print('DHT11 libs OK')"
-python3 -c "import cyclonedds; print('cyclonedds OK')"
-python3 -c "from unitree_sdk2py.core.channel import ChannelFactoryInitialize; print('unitree_sdk2py OK')"
+python -c "import paho.mqtt.client; print('paho-mqtt OK')"
+python -c "import yaml; print('pyyaml OK')"
+python -c "import board; import adafruit_dht; print('DHT11 libs OK')"
+python -c "import cyclonedds; print('cyclonedds OK')"
+python -c "from unitree_sdk2py.core.channel import ChannelSubscriber; print('unitree_sdk2py OK')"
+python -c "from unitree_sdk2py.go2.sport.sport_client import SportClient; print('Go2 SportClient OK')"
+```
+
+全量验证（一次性检查所有核心依赖）：
+
+```bash
+python -c "
+import cyclonedds
+from unitree_sdk2py.go2.sport.sport_client import SportClient
+from unitree_sdk2py.core.channel import ChannelSubscriber
+import paho.mqtt.client as mqtt
+import yaml
+import sqlite3
+import numpy
+print('All dependencies OK')
+"
 ```
 
 如果某一行报错，说明对应的库未安装成功，请根据错误信息排查。
@@ -254,7 +327,7 @@ for i in range(10):
 |------|---------|---------|
 | 全部 Error | GPIO 引脚不对 | 确认 DATA 线接的是哪个 GPIO，改为对应的 `D<N>` |
 | 全部 Error | 缺少 libgpiod | `sudo apt-get install libgpiod2` |
-| ImportError: board | 库未安装 | `pip install adafruit-circuitpython-dht` |
+| ImportError: board | 库未安装 | `pip install adafruit-blinka adafruit-circuitpython-dht` |
 | 温度明显偏高 | 传感器贴近发热元件 | 用延长线将 DHT11 引到通风处 |
 
 #### 通过标准
@@ -420,7 +493,130 @@ Go2PoseSDK: subscribed to rt/sportmodestate on eth0
 
 ---
 
-### 测试 6：断网缓存补传
+### 测试 6：systemd 服务部署
+
+> **前提：测试 5 手动运行通过后，再配置为系统服务。**
+
+#### 6.1 安装服务文件
+
+```bash
+# 拷贝 .service 文件到 systemd 目录
+sudo cp /opt/go2-env-agent/systemd/go2-env-agent.service /etc/systemd/system/
+
+# 重新加载 systemd 配置
+sudo systemctl daemon-reload
+```
+
+#### 6.2 确认配置文件就位
+
+服务依赖两个外部路径，确保它们已存在且权限正确：
+
+```bash
+# 环境变量文件（测试 5 中已创建）
+ls -la /opt/go2-env-agent/config/settings.env
+
+# 数据目录（spool.db 存放位置）
+sudo mkdir -p /var/lib/go2-env-agent
+sudo chown pi:pi /var/lib/go2-env-agent
+```
+
+#### 6.3 服务文件说明
+
+```ini
+# /etc/systemd/system/go2-env-agent.service 关键字段解释：
+[Unit]
+After=network-online.target    # 等网络就绪后再启动（MQTT 需要 4G）
+
+[Service]
+Type=simple                     # 前台进程，systemd 直接管理
+WorkingDirectory=/opt/go2-env-agent
+EnvironmentFile=/opt/go2-env-agent/config/settings.env  # 自动加载环境变量
+ExecStart=/opt/go2-env-agent/venv/bin/python -m app.main
+Restart=always                  # 崩溃后自动重启
+RestartSec=5                    # 重启间隔 5 秒
+User=pi                         # 以 pi 用户运行（非 root）
+
+[Install]
+WantedBy=multi-user.target      # 开机自启
+```
+
+> 如果你的部署用户不是 `pi`，需要修改 `User=` 字段并确保该用户对 `/opt/go2-env-agent` 和 `/var/lib/go2-env-agent` 有读写权限。
+
+#### 6.4 启动与开机自启
+
+```bash
+# 设置开机自启
+sudo systemctl enable go2-env-agent
+
+# 启动服务
+sudo systemctl start go2-env-agent
+
+# 查看运行状态
+sudo systemctl status go2-env-agent
+```
+
+预期输出：
+
+```
+● go2-env-agent.service - Go2 Environment Telemetry Agent
+     Loaded: loaded (/etc/systemd/system/go2-env-agent.service; enabled)
+     Active: active (running) since ...
+   Main PID: 12345 (python)
+     ...
+```
+
+#### 6.5 日志查看
+
+```bash
+# 实时跟踪日志
+sudo journalctl -u go2-env-agent -f
+
+# 查看今天的日志
+sudo journalctl -u go2-env-agent --since today
+
+# 查看最近 100 行
+sudo journalctl -u go2-env-agent -n 100
+
+# 查看上次启动以来的日志（排查崩溃）
+sudo journalctl -u go2-env-agent -b
+```
+
+#### 6.6 常用运维命令
+
+```bash
+# 停止服务
+sudo systemctl stop go2-env-agent
+
+# 重启服务（修改配置后）
+sudo systemctl restart go2-env-agent
+
+# 禁用开机自启（调试时临时关闭）
+sudo systemctl disable go2-env-agent
+
+# 修改 .service 文件后必须重新加载
+sudo systemctl daemon-reload
+sudo systemctl restart go2-env-agent
+```
+
+#### 6.7 故障排查
+
+| 现象 | 排查命令 | 常见原因 |
+|------|---------|---------|
+| `inactive (dead)` | `journalctl -u go2-env-agent -n 50` | Python 路径错误、缺依赖、settings.env 不存在 |
+| `activating (auto-restart)` | 同上 | 程序启动后立即崩溃，5 秒后重试 |
+| 服务运行但无数据 | `journalctl -u go2-env-agent -f` | 环境变量未正确加载，检查 EnvironmentFile 路径 |
+| `permission denied` | `ls -la /opt/go2-env-agent/` | User 字段与文件归属不匹配 |
+| GPIO 报错 | 日志中看 `RuntimeError` | pi 用户需要在 `gpio` 组中：`sudo usermod -aG gpio pi` |
+
+#### 通过标准
+- [ ] `systemctl status` 显示 `active (running)`
+- [ ] `journalctl -f` 能看到正常的采集日志
+- [ ] 重启 Pi 后服务自动启动（`sudo reboot` 验证）
+- [ ] 手动 `kill` 进程后服务自动恢复
+
+---
+
+### 测试 7：断网缓存补传（需先完成测试 6 服务部署）
 
 ```bash
 # 1. 正常运行主程序
@@ -449,23 +645,11 @@ sudo ifconfig wwan0 up
 
 ---
 
-### 测试 7：长时间稳定性
+### 测试 8：长时间稳定性
 
-```bash
-# 以 systemd 服务运行
-sudo cp /opt/go2-env-agent/systemd/go2-env-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable go2-env-agent
-sudo systemctl start go2-env-agent
+> **前提：测试 6 中服务已部署并正常运行。**
 
-# 查看运行状态
-sudo systemctl status go2-env-agent
-
-# 查看实时日志
-sudo journalctl -u go2-env-agent -f
-```
-
-运行 24 小时后检查：
+确保服务正在运行后，运行 24 小时检查：
 
 ```bash
 # 1. 服务是否还活着
@@ -515,7 +699,7 @@ DESCRIBE telemetry_raw;
 
 ## 4. 现场标定流程
 
-当测试 1-7 全部通过后，需要进行现场标定来确定 `points.yaml` 中各点位的真实 SLAM 坐标。
+当测试 1-8 全部通过后，需要进行现场标定来确定 `points.yaml` 中各点位的真实 SLAM 坐标。
 
 ### 标定步骤
 
