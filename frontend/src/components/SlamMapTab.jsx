@@ -24,25 +24,25 @@ const SlamMapTab = () => {
     const [ptData, latestData, trailData, readData] = await Promise.all([
       getSlamPoints(),
       getSlamLatest(),
-      getSlamTrail({ device_id: '', minutes: 60 }),
+      getSlamTrail({ minutes: 60 }),
       getSlamReadings()
     ]);
     setArea(ptData.area);
     setPoints(ptData.points || []);
-    setDevices(latestData);
-    setTrail(trailData);
-    setReadings(readData);
+    setDevices(Array.isArray(latestData) ? latestData : []);
+    setTrail(Array.isArray(trailData) ? trailData : []);
+    setReadings(Array.isArray(readData) ? readData : []);
   };
 
   const pollDynamic = async () => {
     const [latestData, trailData, readData] = await Promise.all([
       getSlamLatest(),
-      getSlamTrail({ device_id: '', minutes: 60 }),
+      getSlamTrail({ minutes: 60 }),
       getSlamReadings()
     ]);
-    setDevices(latestData);
-    setTrail(trailData);
-    setReadings(readData);
+    setDevices(Array.isArray(latestData) ? latestData : []);
+    setTrail(Array.isArray(trailData) ? trailData : []);
+    setReadings(Array.isArray(readData) ? readData : []);
   };
 
   useEffect(() => {
@@ -63,7 +63,9 @@ const SlamMapTab = () => {
   const readingMap = {};
   readings.forEach((r) => { readingMap[r.point_id] = r; });
 
-  const trailStr = trail.map((t) => `${fx(t.pos_x)},${fy(t.pos_y)}`).join(' ');
+  const num = (v) => Number(v) || 0;
+
+  const trailStr = trail.map((t) => `${fx(num(t.pos_x))},${fy(num(t.pos_y))}`).join(' ');
 
   return (
     <div className="card map-card">
@@ -135,27 +137,29 @@ const SlamMapTab = () => {
             )}
 
             {/* robot positions */}
-            {devices.map((dev) => (
+            {devices.map((dev) => {
+              const dx = num(dev.pos_x), dy = num(dev.pos_y);
+              return (
               <g key={dev.device_id}>
-                <circle cx={fx(dev.pos_x)} cy={fy(dev.pos_y)} r={0.25}
+                <circle cx={fx(dx)} cy={fy(dy)} r={0.25}
                   fill="rgba(78,222,128,0.3)" stroke="none">
                   <animate attributeName="r" values="0.25;0.45;0.25" dur="2s" repeatCount="indefinite" />
                   <animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite" />
                 </circle>
-                <circle cx={fx(dev.pos_x)} cy={fy(dev.pos_y)} r={0.18}
+                <circle cx={fx(dx)} cy={fy(dy)} r={0.18}
                   fill="#4ade80" stroke="#fff" strokeWidth={0.04} />
-                {/* direction indicator */}
                 <line
-                  x1={fx(dev.pos_x)} y1={fy(dev.pos_y)}
-                  x2={fx(dev.pos_x) + Math.cos(dev.yaw || 0) * 0.4}
-                  y2={fy(dev.pos_y) - Math.sin(dev.yaw || 0) * 0.4}
+                  x1={fx(dx)} y1={fy(dy)}
+                  x2={fx(dx) + Math.cos(num(dev.yaw)) * 0.4}
+                  y2={fy(dy) - Math.sin(num(dev.yaw)) * 0.4}
                   stroke="#4ade80" strokeWidth={0.06} strokeLinecap="round" />
-                <text x={fx(dev.pos_x)} y={fy(dev.pos_y) - 0.4}
+                <text x={fx(dx)} y={fy(dy) - 0.4}
                   textAnchor="middle" fontSize={0.3} fill="#4ade80" fontWeight="600">
                   {dev.device_id}
                 </text>
               </g>
-            ))}
+              );
+            })}
           </svg>
         </div>
 
@@ -171,7 +175,7 @@ const SlamMapTab = () => {
                   {dev.device_id}
                 </div>
                 <div className="slam-device-meta">
-                  坐标 ({dev.pos_x?.toFixed(2)}, {dev.pos_y?.toFixed(2)})
+                  坐标 ({num(dev.pos_x).toFixed(2)}, {num(dev.pos_y).toFixed(2)})
                   {dev.point_id && <> · 靠近 <strong>{dev.point_id}</strong></>}
                 </div>
                 <div className="slam-device-meta">

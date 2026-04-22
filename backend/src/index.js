@@ -341,22 +341,20 @@ app.get('/api/v1/slam/trail', async (req, res) => {
   try {
     const deviceId = req.query.device_id;
     const minutes = Number(req.query.minutes || 60);
-    if (!deviceId) return fail(res, 'device_id 必填');
 
-    const [rows] = await query(
-      `
-        SELECT ts, pos_x, pos_y, point_id
-        FROM telemetry_raw
-        WHERE device_id = ?
-          AND pose_source = 'go2_slam'
-          AND pose_fix = 1
-          AND pos_x IS NOT NULL AND pos_y IS NOT NULL
-          AND ts >= (UTC_TIMESTAMP() - INTERVAL ? MINUTE)
-        ORDER BY ts ASC
-        LIMIT 500
-      `,
-      [deviceId, minutes]
-    );
+    let sql = `
+      SELECT ts, pos_x, pos_y, point_id, device_id
+      FROM telemetry_raw
+      WHERE pose_source = 'go2_slam'
+        AND pose_fix = 1
+        AND pos_x IS NOT NULL AND pos_y IS NOT NULL
+        AND ts >= (UTC_TIMESTAMP() - INTERVAL ? MINUTE)
+    `;
+    const params = [minutes];
+    if (deviceId) { sql += ' AND device_id = ?'; params.push(deviceId); }
+    sql += ' ORDER BY ts ASC LIMIT 500';
+
+    const [rows] = await query(sql, params);
     ok(res, rows);
   } catch (err) {
     fail(res, err.message, 500);
