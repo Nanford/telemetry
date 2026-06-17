@@ -17,6 +17,7 @@ import {
 } from './data/mock.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api/v1';
+const apiUrl = (path) => `${API_BASE}/${path}`;
 
 /** Tracks whether the last fetch hit the real API or fell back to mock */
 let _lastFetchWasMock = false;
@@ -36,7 +37,7 @@ const notify = (isMock) => {
 };
 
 const fetchJson = async (path, options = {}) => {
-  const response = await fetch(`${API_BASE}/${path}`, {
+  const response = await fetch(apiUrl(path), {
     ...options,
     signal: options.signal
   });
@@ -171,6 +172,11 @@ export const getSlamLatest = withMockFallback(
   mockSlamLatest
 );
 
+export const getSlamLive = withMockFallback(
+  (_, opts) => fetchJson('slam/live', opts),
+  { latest: mockSlamLatest, trail: mockSlamTrail }
+);
+
 export const getSlamTrail = withMockFallback(
   (params, opts) => {
     const query = new URLSearchParams(params).toString();
@@ -183,3 +189,5 @@ export const getSlamReadings = withMockFallback(
   (_, opts) => fetchJson('slam/readings', opts),
   mockSlamReadings
 );
+
+export const createSlamStream = () => new EventSource(apiUrl('slam/stream'));

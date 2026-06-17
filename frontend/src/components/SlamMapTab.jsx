@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getSlamPoints, getSlamLatest, getSlamTrail, getSlamReadings } from '../api.js';
+import { createSlamStream, getSlamLive, getSlamPoints } from '../api.js';
 
-const POLL_MS = 30000;
+const POLL_MS = 5000;
 const PADDING = 1.5;
+const TRAIL_WINDOW_MS = 60 * 60 * 1000;
+const TRAIL_LIMIT = 2000;
 
 function formatAge(ts) {
   if (!ts) return '--';
@@ -12,43 +14,104 @@ function formatAge(ts) {
   return `${Math.floor(sec / 3600)}h 前`;
 }
 
+const timeMs = (ts) => {
+  const parsed = new Date(ts).getTime();
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+};
+
+const pruneTrail = (items) => {
+  const cutoff = Date.now() - TRAIL_WINDOW_MS;
+  return items
+    .filter((item) => timeMs(item.ts) >= cutoff)
+    .slice(-TRAIL_LIMIT);
+};
+
 const SlamMapTab = () => {
   const [area, setArea] = useState(null);
   const [points, setPoints] = useState([]);
   const [devices, setDevices] = useState([]);
   const [trail, setTrail] = useState([]);
   const [readings, setReadings] = useState([]);
+  const [streamOnline, setStreamOnline] = useState(false);
   const pollRef = useRef(null);
+  const streamRef = useRef(null);
+  const streamOnlineRef = useRef(false);
+
+  const updateStreamOnline = (online) => {
+    streamOnlineRef.current = online;
+    setStreamOnline(online);
+  };
+
+  const applyLivePoint = (point) => {
+    if (!point?.device_id || point.pos_x == null || point.pos_y == null) return;
+
+    setDevices((prev) => {
+      const next = new Map(prev.map((item) => [item.device_id, item]));
+      const current = next.get(point.device_id);
+      if (!current || timeMs(point.ts) >= timeMs(current.ts)) {
+        next.set(point.device_id, point);
+      }
+      return Array.from(next.values());
+    });
+
+    setTrail((prev) => pruneTrail([...prev, point]));
+
+    // Point readings are derived from live MQTT samples when the robot reports a checkpoint.
+    if (point.point_id && (point.temp_c != null || point.rh != null)) {
+      setReadings((prev) => {
+        const next = new Map(prev.map((item) => [item.point_id, item]));
+        next.set(point.point_id, {
+          point_id: point.point_id,
+          temp_c: point.temp_c,
+          rh: point.rh,
+          ts: point.ts,
+          device_id: point.device_id
+        });
+        return Array.from(next.values());
+      });
+    }
+  };
 
   const loadAll = async () => {
-    const [ptData, latestData, trailData, readData] = await Promise.all([
+    const [ptData, liveData] = await Promise.all([
       getSlamPoints(),
-      getSlamLatest(),
-      getSlamTrail({ minutes: 60 }),
-      getSlamReadings()
+      getSlamLive()
     ]);
     setArea(ptData.area);
     setPoints(ptData.points || []);
-    setDevices(Array.isArray(latestData) ? latestData : []);
-    setTrail(Array.isArray(trailData) ? trailData : []);
-    setReadings(Array.isArray(readData) ? readData : []);
+    setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
+    setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
   };
 
   const pollDynamic = async () => {
-    const [latestData, trailData, readData] = await Promise.all([
-      getSlamLatest(),
-      getSlamTrail({ minutes: 60 }),
-      getSlamReadings()
-    ]);
-    setDevices(Array.isArray(latestData) ? latestData : []);
-    setTrail(Array.isArray(trailData) ? trailData : []);
-    setReadings(Array.isArray(readData) ? readData : []);
+    if (streamOnlineRef.current) return;
+    const liveData = await getSlamLive();
+    setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
+    setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
   };
 
   useEffect(() => {
     loadAll();
     pollRef.current = setInterval(pollDynamic, POLL_MS);
-    return () => clearInterval(pollRef.current);
+    streamRef.current = createSlamStream();
+
+    streamRef.current.addEventListener('open', () => updateStreamOnline(true));
+    streamRef.current.addEventListener('snapshot', (event) => {
+      const payload = JSON.parse(event.data);
+      updateStreamOnline(true);
+      setDevices(Array.isArray(payload.latest) ? payload.latest : []);
+      setTrail(pruneTrail(Array.isArray(payload.trail) ? payload.trail : []));
+    });
+    streamRef.current.addEventListener('slam', (event) => {
+      updateStreamOnline(true);
+      applyLivePoint(JSON.parse(event.data));
+    });
+    streamRef.current.addEventListener('error', () => updateStreamOnline(false));
+
+    return () => {
+      clearInterval(pollRef.current);
+      streamRef.current?.close();
+    };
   }, []);
 
   if (!area) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
@@ -74,6 +137,7 @@ const SlamMapTab = () => {
         <span className="card-sub">
           {area.name} · {w}m × {h}m
           {devices.length > 0 && <span className="chip" style={{ marginLeft: 8 }}>{devices.length} 台在线</span>}
+          <span className="chip" style={{ marginLeft: 8 }}>{streamOnline ? 'MQTT 实时' : '实时流等待中'}</span>
         </span>
       </div>
 

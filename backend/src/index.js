@@ -4,7 +4,7 @@ const config = require('./config');
 const { pool, query } = require('./db');
 const { autoInitGeofences } = require('./geofence-auto');
 const { parseTime, toMysqlDatetime } = require('./utils');
-const { startIngest, invalidateRuleCache, flushBuffer } = require('./ingest');
+const { startIngest, invalidateRuleCache, flushBuffer, onTelemetry } = require('./ingest');
 
 const app = express();
 app.use(cors());
@@ -18,6 +18,94 @@ const toNumber = (value) => {
   return Number.isFinite(num) ? num : null;
 };
 let mqttClient = null;
+
+const SLAM_TRAIL_WINDOW_MS = 60 * 60 * 1000;
+const SLAM_TRAIL_LIMIT = 2000;
+const slamLiveState = {
+  latestByDevice: new Map(),
+  trail: []
+};
+const slamStreamClients = new Set();
+
+const parseTelemetryTimeMs = (value) => {
+  if (!value) return Date.now();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value > 1e12 ? value : value * 1000;
+  if (/^\d+$/.test(String(value))) {
+    const num = Number(value);
+    return num > 1e12 ? num : num * 1000;
+  }
+
+  // Ingest stores UTC as "YYYY-MM-DD HH:mm:ss"; make that explicit for JS parsing.
+  const text = String(value).includes('T') ? String(value) : `${String(value).replace(' ', 'T')}Z`;
+  const parsed = new Date(text).getTime();
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+};
+
+const toSlamLivePoint = (telemetry) => {
+  if (telemetry.pose_source !== 'go2_slam' || telemetry.pose_fix !== 1) return null;
+  if (telemetry.pos_x === null || telemetry.pos_x === undefined || telemetry.pos_y === null || telemetry.pos_y === undefined) {
+    return null;
+  }
+
+  const tsMs = parseTelemetryTimeMs(telemetry.ts);
+  return {
+    device_id: telemetry.device_id,
+    pos_x: toNumber(telemetry.pos_x),
+    pos_y: toNumber(telemetry.pos_y),
+    pos_z: toNumber(telemetry.pos_z),
+    yaw: toNumber(telemetry.yaw),
+    point_id: telemetry.point_id,
+    area_id: telemetry.area_id,
+    temp_c: telemetry.temp_c,
+    rh: telemetry.rh,
+    ts: new Date(tsMs).toISOString()
+  };
+};
+
+const pruneSlamTrail = () => {
+  const cutoff = Date.now() - SLAM_TRAIL_WINDOW_MS;
+  slamLiveState.trail = slamLiveState.trail
+    .filter((point) => parseTelemetryTimeMs(point.ts) >= cutoff)
+    .slice(-SLAM_TRAIL_LIMIT);
+};
+
+const getSlamLiveSnapshot = () => {
+  pruneSlamTrail();
+  return {
+    latest: Array.from(slamLiveState.latestByDevice.values()),
+    trail: slamLiveState.trail
+  };
+};
+
+const writeSseEvent = (res, event, data) => {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+};
+
+const publishSlamLivePoint = (point) => {
+  for (const res of Array.from(slamStreamClients)) {
+    try {
+      writeSseEvent(res, 'slam', point);
+    } catch (_err) {
+      slamStreamClients.delete(res);
+    }
+  }
+};
+
+onTelemetry((telemetry) => {
+  const point = toSlamLivePoint(telemetry);
+  if (!point) return;
+
+  const previous = slamLiveState.latestByDevice.get(point.device_id);
+  if (!previous || parseTelemetryTimeMs(point.ts) >= parseTelemetryTimeMs(previous.ts)) {
+    slamLiveState.latestByDevice.set(point.device_id, point);
+  }
+
+  slamLiveState.trail.push(point);
+  pruneSlamTrail();
+  publishSlamLivePoint(point);
+});
 
 app.get('/api/v1/health', async (_req, res) => {
   ok(res, { status: 'ok', time: new Date().toISOString() });
@@ -310,6 +398,31 @@ app.get('/api/v1/geo/trail', async (req, res) => {
   } catch (err) {
     fail(res, err.message, 500);
   }
+});
+
+app.get('/api/v1/slam/live', (_req, res) => {
+  ok(res, getSlamLiveSnapshot());
+});
+
+app.get('/api/v1/slam/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  slamStreamClients.add(res);
+  writeSseEvent(res, 'snapshot', getSlamLiveSnapshot());
+
+  const heartbeat = setInterval(() => {
+    res.write(': keepalive\n\n');
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    slamStreamClients.delete(res);
+    res.end();
+  });
 });
 
 app.get('/api/v1/slam/points', (_req, res) => {

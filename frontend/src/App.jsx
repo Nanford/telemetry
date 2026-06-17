@@ -30,7 +30,7 @@ const AppShell = () => {
         </div>
         <div>
           <div className="brand-title">LeafVault</div>
-          <div className="brand-subtitle">烟叶原料库温湿度与巡检监控</div>
+          <div className="brand-subtitle">烟叶原料库温湿度监测</div>
         </div>
       </div>
       <nav className="nav">

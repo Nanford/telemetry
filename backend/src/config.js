@@ -28,11 +28,11 @@ const config = {
   slam: {
     area: { area_id: 'warehouse_1f', name: '一楼仓库', width: 20, height: 6 },
     points: [
-      { id: 'A1', name: '原料接收区', x: 2.1, y: 1.8, radius: 0.8 },
-      { id: 'A2', name: '初加工区', x: 6.4, y: 2.0, radius: 0.8 },
-      { id: 'A3', name: '醇化仓库', x: 10.2, y: 2.1, radius: 0.8 },
-      { id: 'A4', name: '成品仓库', x: 14.0, y: 2.0, radius: 0.8 },
-      { id: 'A5', name: '装卸调度区', x: 17.8, y: 1.9, radius: 0.8 }
+      { id: 'A1', name: 'A1区', x: 2.1, y: 1.8, radius: 0.8 },
+      { id: 'A2', name: 'A2区', x: 6.4, y: 2.0, radius: 0.8 },
+      { id: 'A3', name: 'A3区', x: 10.2, y: 2.1, radius: 0.8 },
+      { id: 'A4', name: 'A4区', x: 14.0, y: 2.0, radius: 0.8 },
+      { id: 'A5', name: 'A5区', x: 17.8, y: 1.9, radius: 0.8 }
     ]
   },
   ingest: {

@@ -1,6 +1,7 @@
 const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
+const { EventEmitter } = require('events');
 const config = require('./config');
 const { pool, query } = require('./db');
 const { safeJsonParse, toMysqlDatetime } = require('./utils');
@@ -18,6 +19,20 @@ const logError = async (message, payload) => {
   await ensureLogDir();
   const entry = `[${new Date().toISOString()}] ${message} ${payload ? JSON.stringify(payload) : ''}\n`;
   await fs.promises.appendFile(logFile, entry, 'utf8');
+};
+
+/* ---------- realtime telemetry stream ---------- */
+
+const telemetryEvents = new EventEmitter();
+telemetryEvents.setMaxListeners(100);
+
+const emitTelemetry = (telemetry) => {
+  telemetryEvents.emit('telemetry', telemetry);
+};
+
+const onTelemetry = (handler) => {
+  telemetryEvents.on('telemetry', handler);
+  return () => telemetryEvents.off('telemetry', handler);
 };
 
 /* ---------- alert helpers ---------- */
@@ -330,7 +345,13 @@ const enqueue = async (telemetry) => {
 /* ---------- MQTT entry point ---------- */
 
 const startIngest = async () => {
-  await refreshRuleCache();
+  try {
+    await refreshRuleCache();
+  } catch (err) {
+    await logError('Rule cache refresh failed; MQTT ingest will continue without alert rules', { error: err.message });
+    ruleCache = [];
+    ruleCacheTs = Date.now();
+  }
 
   const client = mqtt.connect(config.mqtt.url, {
     username: config.mqtt.username,
@@ -376,15 +397,23 @@ const startIngest = async () => {
     const gps = payload.gps || {};
     const isFallback = !!gps.fallback;
     const hasRealFix = gps.fix && !isFallback;
-    const resolvedGpsZoneId = hasRealFix ? await resolveZoneByGps(gps.lat ?? null, gps.lon ?? null) : null;
+    let resolvedGpsZoneId = null;
+    if (hasRealFix) {
+      try {
+        resolvedGpsZoneId = await resolveZoneByGps(gps.lat ?? null, gps.lon ?? null);
+      } catch (err) {
+        await logError('GPS geofence lookup failed; telemetry stream will continue', { error: err.message });
+      }
+    }
 
-    await enqueue(
-      normalizeIncomingTelemetry({
-        topicInfo,
-        payload,
-        resolvedGpsZoneId
-      })
-    );
+    const telemetry = normalizeIncomingTelemetry({
+      topicInfo,
+      payload,
+      resolvedGpsZoneId
+    });
+
+    emitTelemetry(telemetry);
+    await enqueue(telemetry);
   });
 
   client.on('error', async (err) => {
@@ -394,4 +423,4 @@ const startIngest = async () => {
   return client;
 };
 
-module.exports = { startIngest, invalidateRuleCache, flushBuffer, normalizeIncomingTelemetry };
+module.exports = { startIngest, invalidateRuleCache, flushBuffer, normalizeIncomingTelemetry, onTelemetry };
