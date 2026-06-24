@@ -312,8 +312,14 @@ git pull --ff-only
 # 后端依赖有变动时才需要 npm ci
 cd backend && npm ci --omit=dev
 
-# 自动补齐 area_id、SLAM 位姿、点位字段及索引；可重复执行
+# 使用生产服务同一份数据库配置执行迁移；可重复执行
+sudo bash -lc '
+set -a
+source /etc/telemetry-api.env
+set +a
+cd /opt/telemetry/backend
 npm run migrate
+'
 
 sudo systemctl restart telemetry-api
 
