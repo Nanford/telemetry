@@ -1,4 +1,5 @@
-﻿const dotenv = require('dotenv');
+const dotenv = require('dotenv');
+const { buildSlamArea } = require('./slam-config');
 
 dotenv.config();
 
@@ -26,7 +27,7 @@ const config = {
     clientId: process.env.MQTT_CLIENT_ID || `telemetry-api-${Math.random().toString(16).slice(2)}`
   },
   slam: {
-    area: { area_id: 'warehouse_1f', name: '一楼仓库', width: 20, height: 6 },
+    area: buildSlamArea(process.env),
     points: [
       { id: 'A1', name: 'A1区', x: 2.1, y: 1.8, radius: 0.8 },
       { id: 'A2', name: 'A2区', x: 6.4, y: 2.0, radius: 0.8 },

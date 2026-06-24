@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 
 import {
+  computeInspectionMapLayout,
+  computeMapGridStep,
   formatDuration,
   getInspectionStatusMeta,
   sampleMeasurements
@@ -26,5 +28,55 @@ const sampled = sampleMeasurements(
 assert.equal(sampled.length, 4);
 assert.equal(sampled[0].id, 0);
 assert.equal(sampled.at(-1).id, 9);
+
+const inferredLayout = computeInspectionMapLayout({
+  area: { name: '未配置尺寸楼层' },
+  points: [
+    { id: 'A1', x: 120, y: 42 },
+    { id: 'A2', x: 180, y: 58 }
+  ],
+  trail: [
+    { pos_x: 110, pos_y: 40 },
+    { pos_x: 196, pos_y: 62 }
+  ]
+});
+assert.equal(inferredLayout.source, 'inferred');
+assert.ok(inferredLayout.bounds.minX < 110);
+assert.ok(inferredLayout.bounds.maxX > 196);
+assert.ok(inferredLayout.bounds.minY < 40);
+assert.ok(inferredLayout.bounds.maxY > 62);
+assert.ok(inferredLayout.canvas.height >= 450);
+assert.ok(inferredLayout.canvas.height <= 700);
+
+const horizontalLayout = computeInspectionMapLayout({
+  points: [
+    { id: 'A1', x: 2, y: 1.8 },
+    { id: 'A5', x: 18, y: 2 }
+  ]
+});
+assert.equal(horizontalLayout.canvas.height, 450);
+assert.equal(computeMapGridStep(20), 1);
+assert.equal(computeMapGridStep(1000), 25);
+
+const configuredLayout = computeInspectionMapLayout({
+  area: { width: 38, height: 24 },
+  points: [{ id: 'A1', x: 2, y: 2 }],
+  trail: []
+});
+assert.equal(configuredLayout.source, 'configured');
+assert.deepEqual(configuredLayout.bounds, {
+  minX: 0,
+  minY: 0,
+  maxX: 38,
+  maxY: 24
+});
+
+const emptyLayout = computeInspectionMapLayout({
+  area: {},
+  points: [],
+  trail: []
+});
+assert.equal(emptyLayout.source, 'empty');
+assert.equal(emptyLayout.bounds, null);
 
 console.log('inspection-utils: OK');

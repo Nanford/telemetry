@@ -1,5 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createSlamStream, getSlamLive, getSlamPoints } from '../api.js';
+import {
+  computeInspectionMapLayout,
+  computeMapGridStep,
+  formatMetric
+} from '../lib/inspection.js';
 
 const POLL_MS = 5000;
 const PADDING = 1.5;
@@ -128,12 +133,27 @@ const SlamMapTab = () => {
   if (error && !area) return <div className="page-error">{error}</div>;
   if (!area) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
 
-  const w = area.width;
-  const h = area.height;
+  const mapLayout = computeInspectionMapLayout({
+    area,
+    points,
+    trail
+  });
+  if (!mapLayout.bounds) {
+    return <div className="card" style={{ padding: 24 }}>暂无可用于绘图的坐标数据</div>;
+  }
+  const { bounds } = mapLayout;
+  const w = bounds.maxX - bounds.minX;
+  const h = bounds.maxY - bounds.minY;
   const vbW = w + PADDING * 2;
   const vbH = h + PADDING * 2;
-  const fy = (y) => h - y + PADDING;
-  const fx = (x) => x + PADDING;
+  const fy = (y) => bounds.maxY - y + PADDING;
+  const fx = (x) => x - bounds.minX + PADDING;
+  const gridStep = computeMapGridStep(Math.max(w, h));
+  const axisStep = gridStep * 5;
+  const dimensionLabel =
+    mapLayout.source === 'configured'
+      ? `${formatMetric(area.width)}m × ${formatMetric(area.height)}m`
+      : '坐标范围自动适配';
 
   const readingMap = {};
   readings.forEach((r) => { readingMap[r.point_id] = r; });
@@ -147,7 +167,7 @@ const SlamMapTab = () => {
       <div className="card-header">
         <h3>室内定位平面图</h3>
         <span className="card-sub">
-          {area.name} · {w}m × {h}m
+          {area.name} · {dimensionLabel}
           {devices.length > 0 && <span className="chip" style={{ marginLeft: 8 }}>{devices.length} 台有位置上报</span>}
           <span className="chip" style={{ marginLeft: 8 }}>
             {streamOnline ? '数据通道已连接' : '等待采集通道'}
@@ -166,20 +186,20 @@ const SlamMapTab = () => {
               fill="rgba(9,32,72,0.85)" stroke="rgba(101,200,255,0.35)" strokeWidth={0.06} />
 
             {/* grid lines */}
-            {Array.from({ length: w + 1 }, (_, i) => (
-              <line key={`gv${i}`} x1={fx(i)} y1={PADDING} x2={fx(i)} y2={PADDING + h}
+            {Array.from({ length: Math.floor(w / gridStep) + 1 }, (_, i) => (
+              <line key={`gv${i}`} x1={PADDING + i * gridStep} y1={PADDING} x2={PADDING + i * gridStep} y2={PADDING + h}
                 stroke="rgba(101,200,255,0.1)" strokeWidth={0.03} />
             ))}
-            {Array.from({ length: h + 1 }, (_, i) => (
-              <line key={`gh${i}`} x1={PADDING} y1={PADDING + i} x2={PADDING + w} y2={PADDING + i}
+            {Array.from({ length: Math.floor(h / gridStep) + 1 }, (_, i) => (
+              <line key={`gh${i}`} x1={PADDING} y1={PADDING + i * gridStep} x2={PADDING + w} y2={PADDING + i * gridStep}
                 stroke="rgba(101,200,255,0.1)" strokeWidth={0.03} />
             ))}
 
             {/* axis labels */}
-            {Array.from({ length: Math.floor(w / 5) + 1 }, (_, i) => (
-              <text key={`lx${i}`} x={fx(i * 5)} y={PADDING + h + 0.6}
+            {Array.from({ length: Math.floor(w / axisStep) + 1 }, (_, i) => (
+              <text key={`lx${i}`} x={PADDING + i * axisStep} y={PADDING + h + 0.6}
                 textAnchor="middle" fontSize={0.4} fill="rgba(205,231,255,0.5)">
-                {i * 5}m
+                {formatMetric(bounds.minX + i * axisStep, 0)}m
               </text>
             ))}
 

@@ -50,3 +50,97 @@ export const sampleMeasurements = (measurements = [], maxPoints = 300) => {
   }
   return sampled;
 };
+
+const finiteCoordinate = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+/**
+ * 控制 SLAM 网格密度，避免大尺寸或大坐标范围生成过多 SVG 节点。
+ */
+export const computeMapGridStep = (span, maxLines = 40) => {
+  const numericSpan = Math.max(finiteCoordinate(span) || 0, 0);
+  const lineLimit = Math.max(Math.floor(Number(maxLines)) || 40, 1);
+  return Math.max(1, Math.ceil(numericSpan / lineLimit));
+};
+
+/**
+ * 计算巡检地图的真实坐标边界和响应式画布尺寸。
+ * 有明确楼层宽高时使用配置；否则从点位和实际轨迹坐标推导边界。
+ */
+export const computeInspectionMapLayout = ({
+  area = {},
+  points = [],
+  trail = []
+} = {}) => {
+  const configuredWidth = finiteCoordinate(area.width);
+  const configuredHeight = finiteCoordinate(area.height);
+  let bounds = null;
+  let source = 'empty';
+
+  if (configuredWidth > 0 && configuredHeight > 0) {
+    bounds = {
+      minX: 0,
+      minY: 0,
+      maxX: configuredWidth,
+      maxY: configuredHeight
+    };
+    source = 'configured';
+  } else {
+    const coordinates = [
+      ...points.map((point) => ({
+        x: finiteCoordinate(point.x),
+        y: finiteCoordinate(point.y)
+      })),
+      ...trail.map((point) => ({
+        x: finiteCoordinate(point.pos_x),
+        y: finiteCoordinate(point.pos_y)
+      }))
+    ].filter(({ x, y }) => x !== null && y !== null);
+
+    if (coordinates.length) {
+      const valuesX = coordinates.map(({ x }) => x);
+      const valuesY = coordinates.map(({ y }) => y);
+      const minX = Math.min(...valuesX);
+      const maxX = Math.max(...valuesX);
+      const minY = Math.min(...valuesY);
+      const maxY = Math.max(...valuesY);
+      const spanX = Math.max(maxX - minX, 1);
+      const spanY = Math.max(maxY - minY, 1);
+      const paddingX = Math.max(spanX * 0.08, 1);
+      const paddingY = Math.max(spanY * 0.3, 1.5);
+
+      bounds = {
+        minX: minX - paddingX,
+        minY: minY - paddingY,
+        maxX: maxX + paddingX,
+        maxY: maxY + paddingY
+      };
+      source = 'inferred';
+    }
+  }
+
+  if (!bounds) {
+    return {
+      source,
+      bounds: null,
+      canvas: { width: 1280, height: 560 }
+    };
+  }
+
+  const width = Math.max(bounds.maxX - bounds.minX, 1);
+  const height = Math.max(bounds.maxY - bounds.minY, 1);
+  const aspectRatio = width / height;
+
+  return {
+    source,
+    bounds,
+    canvas: {
+      width: 1280,
+      height: Math.round(clamp(1280 / aspectRatio + 180, 450, 700))
+    }
+  };
+};
