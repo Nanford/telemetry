@@ -51,12 +51,22 @@ CREATE TABLE IF NOT EXISTS telemetry_raw (
   alt_m DECIMAL(8,2) NULL,
   speed_kmh DECIMAL(8,2) NULL,
 
+  pose_source VARCHAR(16) NULL,
+  pose_fix TINYINT(1) NULL,
+  pos_x DECIMAL(10,4) NULL,
+  pos_y DECIMAL(10,4) NULL,
+  pos_z DECIMAL(10,4) NULL,
+  yaw DECIMAL(8,4) NULL,
+  point_id VARCHAR(64) NULL,
+  sample_type VARCHAR(16) NULL,
+
   payload_json JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   KEY idx_tr_sensor_ts (sensor_id, ts),
   KEY idx_tr_zone_ts (zone_id, ts),
   KEY idx_tr_area_ts (area_id, ts),
+  KEY idx_tr_point_ts (point_id, ts),
   KEY idx_tr_device_ts (device_id, ts)
 ) ENGINE=InnoDB;
 

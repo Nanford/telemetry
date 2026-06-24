@@ -5,7 +5,10 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node scripts/test-normalize-telemetry.js && node scripts/test-inspection-batches.js && node scripts/test-schema-migrations.js && node scripts/test-demo-inspection-data.js",
+    "migrate": "node scripts/migrate-schema.js",
+    "demo:inspection": "node scripts/publish-inspection-demo.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

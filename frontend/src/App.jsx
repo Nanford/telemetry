@@ -1,6 +1,9 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import Overview from './pages/Overview.jsx';
+import InspectionBatches from './pages/InspectionBatches.jsx';
+import InspectionBatchDetail from './pages/InspectionBatchDetail.jsx';
+import InspectionReports from './pages/InspectionReports.jsx';
 import ZoneDetail from './pages/ZoneDetail.jsx';
 import MapView from './pages/MapView.jsx';
 import Alerts from './pages/Alerts.jsx';
@@ -9,9 +12,11 @@ import Devices from './pages/Devices.jsx';
 import { onConnectionChange, isUsingMock } from './api.js';
 
 const navItems = [
-  { to: '/', label: '库区总览', icon: '◎' },
+  { to: '/', label: '工作台总览', icon: '◎' },
+  { to: '/inspections', label: '巡检批次', icon: '◈' },
   { to: '/zones', label: '区域趋势', icon: '◍' },
   { to: '/map', label: '巡检地图', icon: '⟡' },
+  { to: '/reports', label: '数据报表', icon: '▥' },
   { to: '/alerts', label: '告警中心', icon: '⬡' },
   { to: '/rules', label: '阈值规则', icon: '⟠' },
   { to: '/devices', label: '采集终端', icon: '◌' }
@@ -19,7 +24,15 @@ const navItems = [
 
 const AppShell = () => {
   const [isMock, setIsMock] = useState(isUsingMock());
+  const location = useLocation();
   useEffect(() => onConnectionChange(setIsMock), []);
+  const topbarTitle = location.pathname.startsWith('/inspections/')
+    ? '巡检批次详情'
+    : navItems.find((item) => (
+      item.to === '/'
+        ? location.pathname === '/'
+        : location.pathname.startsWith(item.to)
+    ))?.label || '烟叶库区巡检';
 
   return (
   <div className="app">
@@ -52,8 +65,8 @@ const AppShell = () => {
         <div className="signal">
           <span className={`signal-dot ${isMock ? 'signal-dot-warn' : ''}`} />
           <div>
-            <div className="signal-title">{isMock ? '模拟数据' : '数据链路'}</div>
-            <div className="signal-subtitle">{isMock ? 'API 不可用' : 'MQTT · REST'}</div>
+            <div className="signal-title">{isMock ? '连接异常' : '数据链路'}</div>
+            <div className="signal-subtitle">{isMock ? '请检查后端服务' : 'MQTT · REST'}</div>
           </div>
         </div>
         <div className="sidebar-note">v1.0 · Telemetry Console</div>
@@ -63,19 +76,24 @@ const AppShell = () => {
     <main className="main">
       <header className="topbar">
         <div>
-          <div className="topbar-title">烟叶库区实时态势</div>
+          <div className="topbar-title">{topbarTitle}</div>
           <div className="topbar-subtitle">最后同步 · <span className="topbar-time">{new Date().toLocaleString()}</span></div>
         </div>
         <div className="topbar-actions">
-          <button className="ghost-button">导出巡检报告</button>
+          <NavLink className="ghost-button link-button" to="/inspections">
+            查询巡检批次
+          </NavLink>
           <NavLink className="primary-button link-button" to="/rules">
-            新建阈值
+            阈值规则
           </NavLink>
         </div>
       </header>
       <section className="content">
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/inspections" element={<InspectionBatches />} />
+          <Route path="/inspections/:batchNo" element={<InspectionBatchDetail />} />
+          <Route path="/reports" element={<InspectionReports />} />
           <Route path="/zones" element={<ZoneDetail />} />
           <Route path="/map" element={<MapView />} />
           <Route path="/alerts" element={<Alerts />} />

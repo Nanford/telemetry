@@ -33,6 +33,7 @@ const SlamMapTab = () => {
   const [trail, setTrail] = useState([]);
   const [readings, setReadings] = useState([]);
   const [streamOnline, setStreamOnline] = useState(false);
+  const [error, setError] = useState('');
   const pollRef = useRef(null);
   const streamRef = useRef(null);
   const streamOnlineRef = useRef(false);
@@ -73,21 +74,31 @@ const SlamMapTab = () => {
   };
 
   const loadAll = async () => {
-    const [ptData, liveData] = await Promise.all([
-      getSlamPoints(),
-      getSlamLive()
-    ]);
-    setArea(ptData.area);
-    setPoints(ptData.points || []);
-    setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
-    setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
+    try {
+      const [ptData, liveData] = await Promise.all([
+        getSlamPoints(),
+        getSlamLive()
+      ]);
+      setArea(ptData.area);
+      setPoints(ptData.points || []);
+      setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
+      setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
+      setError('');
+    } catch (requestError) {
+      setError(requestError.message || '巡检地图加载失败');
+    }
   };
 
   const pollDynamic = async () => {
     if (streamOnlineRef.current) return;
-    const liveData = await getSlamLive();
-    setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
-    setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
+    try {
+      const liveData = await getSlamLive();
+      setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
+      setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
+      setError('');
+    } catch (requestError) {
+      setError(requestError.message || '巡检位置数据加载失败');
+    }
   };
 
   useEffect(() => {
@@ -114,6 +125,7 @@ const SlamMapTab = () => {
     };
   }, []);
 
+  if (error && !area) return <div className="page-error">{error}</div>;
   if (!area) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
 
   const w = area.width;
@@ -136,10 +148,14 @@ const SlamMapTab = () => {
         <h3>室内定位平面图</h3>
         <span className="card-sub">
           {area.name} · {w}m × {h}m
-          {devices.length > 0 && <span className="chip" style={{ marginLeft: 8 }}>{devices.length} 台在线</span>}
-          <span className="chip" style={{ marginLeft: 8 }}>{streamOnline ? 'MQTT 实时' : '实时流等待中'}</span>
+          {devices.length > 0 && <span className="chip" style={{ marginLeft: 8 }}>{devices.length} 台有位置上报</span>}
+          <span className="chip" style={{ marginLeft: 8 }}>
+            {streamOnline ? '数据通道已连接' : '等待采集通道'}
+          </span>
         </span>
       </div>
+
+      {error && <div className="page-error">{error}</div>}
 
       <div className="map-body">
         {/* SVG floor plan */}
@@ -230,8 +246,8 @@ const SlamMapTab = () => {
         {/* sidebar */}
         <div className="map-list slam-sidebar">
           <div className="slam-section">
-            <div className="slam-section-title">机器人状态</div>
-            {devices.length === 0 && <div className="sensor-empty">暂无设备上报</div>}
+            <div className="slam-section-title">最近位置上报</div>
+            {devices.length === 0 && <div className="sensor-empty">当前没有机器狗进仓采集</div>}
             {devices.map((dev) => (
               <div key={dev.device_id} className="slam-device-row">
                 <div className="slam-device-name">

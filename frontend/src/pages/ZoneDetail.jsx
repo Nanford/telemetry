@@ -103,7 +103,7 @@ const ZoneDetail = () => {
           <div className="card-header">
             <div>
               <div className="card-title">巡检终端点位</div>
-              <div className="card-subtitle">{sensors.length} 个点位在线</div>
+              <div className="card-subtitle">{sensors.length} 个已登记采集点位</div>
             </div>
             <button className="ghost-button">导出监测记录</button>
           </div>
