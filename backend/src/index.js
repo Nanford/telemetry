@@ -5,6 +5,12 @@ const { pool, query } = require('./db');
 const { autoInitGeofences } = require('./geofence-auto');
 const { parseTime, toMysqlDatetime } = require('./utils');
 const { startIngest, invalidateRuleCache, flushBuffer, onTelemetry } = require('./ingest');
+const {
+  buildInspectionBatches,
+  summarizeInspectionBatches,
+  toBatchListItem
+} = require('./inspection-batches');
+const { ensureTelemetrySchema } = require('./schema-migrations');
 
 const app = express();
 app.use(cors());
@@ -26,6 +32,44 @@ const slamLiveState = {
   trail: []
 };
 const slamStreamClients = new Set();
+
+const loadInspectionBatches = async () => {
+  const [telemetryRows] = await query(`
+    SELECT id, device_id, sensor_id, zone_id, area_id, ts, temp_c, rh,
+           pose_source, pose_fix, pos_x, pos_y, pos_z, yaw, point_id, sample_type
+    FROM telemetry_raw
+    WHERE temp_c IS NOT NULL OR rh IS NOT NULL
+    ORDER BY device_id ASC, ts ASC, id ASC
+  `);
+  const [rules] = await query(`
+    SELECT id, scope_type, zone_id, sensor_id,
+           temp_high, temp_low, rh_high, rh_low
+    FROM alert_rules
+    WHERE enabled = 1
+  `);
+
+  return buildInspectionBatches(telemetryRows, rules, config.slam.points, {
+    gapMinutes: 30,
+    timeZone: 'Asia/Shanghai'
+  });
+};
+
+const pointReadingsForBatch = (batch) => {
+  const latestByPoint = new Map();
+  for (const measurement of batch.measurements) {
+    if (!measurement.matched_point_id) continue;
+    latestByPoint.set(measurement.matched_point_id, {
+      point_id: measurement.matched_point_id,
+      point_name: measurement.matched_point_name,
+      temp_c: measurement.temp_c,
+      rh: measurement.rh,
+      ts: measurement.ts,
+      temp_abnormal: measurement.temp_abnormal,
+      rh_abnormal: measurement.rh_abnormal
+    });
+  }
+  return Array.from(latestByPoint.values());
+};
 
 const parseTelemetryTimeMs = (value) => {
   if (!value) return Date.now();
@@ -395,6 +439,88 @@ app.get('/api/v1/geo/trail', async (req, res) => {
     );
 
     ok(res, rows);
+  } catch (err) {
+    fail(res, err.message, 500);
+  }
+});
+
+app.get('/api/v1/inspection-batches', async (req, res) => {
+  try {
+    const allBatches = await loadInspectionBatches();
+    const deviceId = req.query.device_id || null;
+    const status = req.query.status || null;
+    const startMs = req.query.start ? new Date(req.query.start).getTime() : null;
+    const endMs = req.query.end ? new Date(req.query.end).getTime() : null;
+
+    const filtered = allBatches.filter((batch) => {
+      const batchStart = new Date(batch.start_time).getTime();
+      if (deviceId && batch.device_id !== deviceId) return false;
+      if (status && batch.status !== status) return false;
+      if (Number.isFinite(startMs) && batchStart < startMs) return false;
+      if (Number.isFinite(endMs) && batchStart > endMs) return false;
+      return true;
+    });
+    const sorted = filtered.sort(
+      (a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
+    );
+    const page = Math.max(1, Number.parseInt(req.query.page || '1', 10));
+    const pageSize = Math.min(
+      100,
+      Math.max(1, Number.parseInt(req.query.page_size || '20', 10))
+    );
+    const offset = (page - 1) * pageSize;
+
+    ok(res, {
+      summary: summarizeInspectionBatches(filtered, {
+        timeZone: 'Asia/Shanghai'
+      }),
+      items: sorted.slice(offset, offset + pageSize).map(toBatchListItem),
+      pagination: {
+        page,
+        page_size: pageSize,
+        total: sorted.length,
+        total_pages: Math.max(1, Math.ceil(sorted.length / pageSize))
+      },
+      grouping: {
+        gap_minutes: 30,
+        time_zone: 'Asia/Shanghai'
+      }
+    });
+  } catch (err) {
+    fail(res, err.message, 500);
+  }
+});
+
+app.get('/api/v1/inspection-batches/:batchNo', async (req, res) => {
+  try {
+    const batches = await loadInspectionBatches();
+    const batch = batches.find((item) => item.batch_no === req.params.batchNo);
+    if (!batch) return fail(res, '巡检批次不存在', 404);
+
+    const actualTrail = batch.measurements
+      .filter(
+        (measurement) =>
+          measurement.pose_source === 'go2_slam' &&
+          Number(measurement.pose_fix) === 1 &&
+          measurement.pos_x !== null &&
+          measurement.pos_y !== null
+      )
+      .map((measurement) => ({
+        ts: measurement.ts,
+        pos_x: measurement.pos_x,
+        pos_y: measurement.pos_y,
+        pos_z: measurement.pos_z,
+        yaw: measurement.yaw,
+        point_id: measurement.matched_point_id
+      }));
+
+    ok(res, {
+      batch,
+      area: config.slam.area,
+      points: config.slam.points,
+      point_readings: pointReadingsForBatch(batch),
+      actual_trail: actualTrail
+    });
   } catch (err) {
     fail(res, err.message, 500);
   }
@@ -896,17 +1022,27 @@ app.post('/api/v1/sensors', async (req, res) => {
 
 let server;
 
-server = app.listen(config.port, () => {
-  console.log(`API listening on ${config.port}`);
-});
+const bootstrap = async () => {
+  const migrations = await ensureTelemetrySchema(query);
+  if (migrations.length) {
+    console.log(`[schema] applied ${migrations.length} telemetry change(s)`);
+  }
 
-startIngest()
-  .then((client) => {
-    mqttClient = client;
-  })
-  .catch((err) => {
-    console.error('MQTT ingest failed', err);
+  server = app.listen(config.port, () => {
+    console.log(`API listening on ${config.port}`);
   });
+
+  try {
+    mqttClient = await startIngest();
+  } catch (err) {
+    console.error('MQTT ingest failed', err);
+  }
+};
+
+bootstrap().catch((err) => {
+  console.error('API bootstrap failed', err);
+  process.exitCode = 1;
+});
 
 const shutdown = async (signal) => {
   console.log(`\n[${signal}] shutting down...`);

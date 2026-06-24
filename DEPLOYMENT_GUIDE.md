@@ -311,6 +311,10 @@ git pull --ff-only
 
 # 后端依赖有变动时才需要 npm ci
 cd backend && npm ci --omit=dev
+
+# 自动补齐 area_id、SLAM 位姿、点位字段及索引；可重复执行
+npm run migrate
+
 sudo systemctl restart telemetry-api
 
 # 前端每次都要重构 + 发布（因为 .env.production 编译期注入）
@@ -324,7 +328,38 @@ sudo chown -R www-data:www-data /var/www/telemetry
 # Nginx 配置没改不用 reload
 ```
 
-### 3.2 查日志
+### 3.2 发布一轮巡检测试数据
+
+后端和 MQTT Broker 正常运行后，可发布一轮 A1 → A5 测试巡检：
+
+```bash
+cd /opt/telemetry/backend
+npm run demo:inspection
+```
+
+脚本会使用当前后端环境中的 `MQTT_URL`、`MQTT_USERNAME` 和
+`MQTT_PASSWORD`，生成一个唯一测试设备，并依次上报：
+
+- A1～A5 点位编号；
+- SLAM `x/y/z/yaw` 位姿；
+- 温度、湿度；
+- `point_valid` 采样类型。
+
+A3 默认生成一条湿度越限记录，用于检查异常批次和橙色数据气泡。
+发布完成后打开“巡检批次”，进入最新批次详情即可查看预设路线、
+实际轨迹和五个点位的数据气泡。
+
+可选参数：
+
+```bash
+# 指定测试设备和点位发布间隔
+npm run demo:inspection -- --device-id go2-demo-server --interval-ms 1500
+
+# 仅打印将要发布的数据，不连接 MQTT
+npm run demo:inspection -- --dry-run
+```
+
+### 3.3 查日志
 
 ```bash
 # 后端 API 日志

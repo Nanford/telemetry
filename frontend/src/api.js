@@ -9,11 +9,7 @@ import {
   mockZones,
   mockSensors,
   mockInsights,
-  mockHealth,
-  mockSlamPoints,
-  mockSlamLatest,
-  mockSlamTrail,
-  mockSlamReadings
+  mockHealth
 } from './data/mock.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api/v1';
@@ -37,18 +33,23 @@ const notify = (isMock) => {
 };
 
 const fetchJson = async (path, options = {}) => {
-  const response = await fetch(apiUrl(path), {
-    ...options,
-    signal: options.signal
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const error = new Error(payload?.message || `HTTP ${response.status}`);
-    error.status = response.status;
+  try {
+    const response = await fetch(apiUrl(path), {
+      ...options,
+      signal: options.signal
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(payload?.message || `HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    notify(false);
+    return payload.data ?? payload;
+  } catch (error) {
+    if (error.name !== 'AbortError') notify(true);
     throw error;
   }
-  notify(false);
-  return payload.data ?? payload;
 };
 
 const withMockFallback = (fetcher, mockData) => {
@@ -162,32 +163,30 @@ export const getHealthSummary = withMockFallback(
   mockHealth
 );
 
-export const getSlamPoints = withMockFallback(
-  (_, opts) => fetchJson('slam/points', opts),
-  mockSlamPoints
-);
+export const getSlamPoints = (_, opts) => fetchJson('slam/points', opts);
 
-export const getSlamLatest = withMockFallback(
-  (_, opts) => fetchJson('slam/latest', opts),
-  mockSlamLatest
-);
+export const getSlamLatest = (_, opts) => fetchJson('slam/latest', opts);
 
-export const getSlamLive = withMockFallback(
-  (_, opts) => fetchJson('slam/live', opts),
-  { latest: mockSlamLatest, trail: mockSlamTrail }
-);
+export const getSlamLive = (_, opts) => fetchJson('slam/live', opts);
 
-export const getSlamTrail = withMockFallback(
-  (params, opts) => {
-    const query = new URLSearchParams(params).toString();
-    return fetchJson(`slam/trail?${query}`, opts);
-  },
-  mockSlamTrail
-);
+export const getSlamTrail = (params = {}, opts) => {
+  const query = new URLSearchParams(params).toString();
+  return fetchJson(`slam/trail${query ? `?${query}` : ''}`, opts);
+};
 
-export const getSlamReadings = withMockFallback(
-  (_, opts) => fetchJson('slam/readings', opts),
-  mockSlamReadings
-);
+export const getSlamReadings = (_, opts) => fetchJson('slam/readings', opts);
 
 export const createSlamStream = () => new EventSource(apiUrl('slam/stream'));
+
+/**
+ * 巡检批次页面只使用真实接口。请求失败时由页面展示错误态，不回退到模拟数据。
+ */
+export const getInspectionBatches = (params = {}, options = {}) => {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, value]) => value !== null && value !== undefined && value !== '')
+  ).toString();
+  return fetchJson(`inspection-batches${query ? `?${query}` : ''}`, options);
+};
+
+export const getInspectionBatch = (batchNo, options = {}) =>
+  fetchJson(`inspection-batches/${encodeURIComponent(batchNo)}`, options);
