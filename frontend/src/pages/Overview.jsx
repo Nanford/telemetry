@@ -55,7 +55,10 @@ const Overview = () => {
 
   const summary = data.summary || {};
   const latestBatch = latestDetail?.batch;
-  const trend = sampleMeasurements(latestBatch?.measurements || [], 240);
+  const trend = sampleMeasurements(
+    latestDetail?.trend || latestDetail?.measurements || latestBatch?.measurements || [],
+    240
+  );
 
   return (
     <div className="page">

@@ -13,7 +13,10 @@ const InspectionReports = () => {
 
   useEffect(() => {
     const controller = new AbortController();
-    getInspectionBatches({ page: 1, page_size: 100 }, { signal: controller.signal })
+    getInspectionBatches(
+      { page: 1, page_size: 100, range: 'all' },
+      { signal: controller.signal }
+    )
       .then(setData)
       .catch((requestError) => {
         if (requestError.name !== 'AbortError') {

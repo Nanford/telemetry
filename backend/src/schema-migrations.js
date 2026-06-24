@@ -11,6 +11,7 @@ const TELEMETRY_COLUMNS = [
 ];
 
 const TELEMETRY_INDEXES = [
+  ['idx_tr_ts', 'ts'],
   ['idx_tr_area_ts', 'area_id, ts'],
   ['idx_tr_point_ts', 'point_id, ts']
 ];

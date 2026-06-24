@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   computeInspectionMapLayout,
   computeMapGridStep,
+  createDefaultInspectionRange,
   formatDuration,
   getInspectionStatusMeta,
   sampleMeasurements
@@ -11,6 +12,14 @@ import {
 assert.equal(formatDuration(76), '1分16秒');
 assert.equal(formatDuration(0), '0秒');
 assert.equal(formatDuration(null), '--');
+
+assert.deepEqual(
+  createDefaultInspectionRange(new Date('2026-06-24T12:00:00+08:00')),
+  {
+    start: '2026-06-23T12:00',
+    end: '2026-06-24T12:00'
+  }
+);
 
 assert.deepEqual(getInspectionStatusMeta('undetermined'), {
   label: '未判定',

@@ -38,6 +38,31 @@ export const formatMetric = (value, digits = 1) => {
   return Number.isFinite(numeric) ? numeric.toFixed(digits) : '--';
 };
 
+const toShanghaiDateTimeLocal = (value) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(value);
+  const fields = Object.fromEntries(
+    parts.map((part) => [part.type, part.value])
+  );
+  return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
+};
+
+export const createDefaultInspectionRange = (now = new Date()) => {
+  const end = new Date(now);
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  return {
+    start: toShanghaiDateTimeLocal(start),
+    end: toShanghaiDateTimeLocal(end)
+  };
+};
+
 export const sampleMeasurements = (measurements = [], maxPoints = 300) => {
   if (measurements.length <= maxPoints) return measurements;
   if (maxPoints <= 1) return [measurements[0]];

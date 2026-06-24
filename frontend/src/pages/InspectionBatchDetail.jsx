@@ -46,9 +46,22 @@ const InspectionBatchDetail = () => {
     );
   }
 
-  const { batch, area, points, point_readings: pointReadings, actual_trail: actualTrail } = data;
-  const trend = sampleMeasurements(batch.measurements, 300);
-  const recentMeasurements = [...batch.measurements].slice(-100).reverse();
+  const {
+    batch,
+    area,
+    points,
+    trend: trendMeasurements = [],
+    measurements = [],
+    point_readings: pointReadings,
+    actual_trail: actualTrail
+  } = data;
+  const trend = sampleMeasurements(
+    trendMeasurements.length ? trendMeasurements : batch.measurements || measurements,
+    300
+  );
+  const recentMeasurements = [
+    ...(measurements.length ? measurements : batch.measurements || [])
+  ].slice(-100).reverse();
 
   return (
     <div className="page">
@@ -90,7 +103,7 @@ const InspectionBatchDetail = () => {
             <div>
               <span>温度异常记录<strong>{batch.temp_abnormal_count}</strong></span>
               <span>湿度异常记录<strong>{batch.rh_abnormal_count}</strong></span>
-              <span>未匹配点位<strong>{batch.sample_count - batch.measurements.filter((item) => item.matched_point_id).length}</strong></span>
+              <span>未匹配点位<strong>{batch.unmatched_point_count ?? '--'}</strong></span>
             </div>
           </div>
         </div>

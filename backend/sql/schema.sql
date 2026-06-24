@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS telemetry_raw (
 
   KEY idx_tr_sensor_ts (sensor_id, ts),
   KEY idx_tr_zone_ts (zone_id, ts),
+  KEY idx_tr_ts (ts),
   KEY idx_tr_area_ts (area_id, ts),
   KEY idx_tr_point_ts (point_id, ts),
   KEY idx_tr_device_ts (device_id, ts)

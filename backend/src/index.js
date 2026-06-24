@@ -6,7 +6,11 @@ const { autoInitGeofences } = require('./geofence-auto');
 const { parseTime, toMysqlDatetime } = require('./utils');
 const { startIngest, invalidateRuleCache, flushBuffer, onTelemetry } = require('./ingest');
 const {
+  buildInspectionBatchDetailPayload,
+  buildInspectionBatchLookupRange,
+  buildInspectionScanRange,
   buildInspectionBatches,
+  resolveInspectionRange,
   summarizeInspectionBatches,
   toBatchListItem
 } = require('./inspection-batches');
@@ -33,14 +37,24 @@ const slamLiveState = {
 };
 const slamStreamClients = new Set();
 
-const loadInspectionBatches = async () => {
+const loadInspectionBatches = async (scanRange = null) => {
+  const conditions = ['(temp_c IS NOT NULL OR rh IS NOT NULL)'];
+  const params = [];
+  if (scanRange) {
+    conditions.push('ts >= ?', 'ts <= ?');
+    params.push(
+      toMysqlDatetime(new Date(scanRange.startMs)),
+      toMysqlDatetime(new Date(scanRange.endMs))
+    );
+  }
+
   const [telemetryRows] = await query(`
     SELECT id, device_id, sensor_id, zone_id, area_id, ts, temp_c, rh,
            pose_source, pose_fix, pos_x, pos_y, pos_z, yaw, point_id, sample_type
     FROM telemetry_raw
-    WHERE temp_c IS NOT NULL OR rh IS NOT NULL
+    WHERE ${conditions.join(' AND ')}
     ORDER BY device_id ASC, ts ASC, id ASC
-  `);
+  `, params);
   const [rules] = await query(`
     SELECT id, scope_type, zone_id, sensor_id,
            temp_high, temp_low, rh_high, rh_low
@@ -52,23 +66,6 @@ const loadInspectionBatches = async () => {
     gapMinutes: 30,
     timeZone: 'Asia/Shanghai'
   });
-};
-
-const pointReadingsForBatch = (batch) => {
-  const latestByPoint = new Map();
-  for (const measurement of batch.measurements) {
-    if (!measurement.matched_point_id) continue;
-    latestByPoint.set(measurement.matched_point_id, {
-      point_id: measurement.matched_point_id,
-      point_name: measurement.matched_point_name,
-      temp_c: measurement.temp_c,
-      rh: measurement.rh,
-      ts: measurement.ts,
-      temp_abnormal: measurement.temp_abnormal,
-      rh_abnormal: measurement.rh_abnormal
-    });
-  }
-  return Array.from(latestByPoint.values());
 };
 
 const parseTelemetryTimeMs = (value) => {
@@ -446,18 +443,21 @@ app.get('/api/v1/geo/trail', async (req, res) => {
 
 app.get('/api/v1/inspection-batches', async (req, res) => {
   try {
-    const allBatches = await loadInspectionBatches();
+    const range = resolveInspectionRange(req.query);
+    const scanRange = buildInspectionScanRange(range, {
+      gapMinutes: 30,
+      timeZoneOffsetHours: 8
+    });
+    const allBatches = await loadInspectionBatches(scanRange);
     const deviceId = req.query.device_id || null;
     const status = req.query.status || null;
-    const startMs = req.query.start ? new Date(req.query.start).getTime() : null;
-    const endMs = req.query.end ? new Date(req.query.end).getTime() : null;
 
     const filtered = allBatches.filter((batch) => {
       const batchStart = new Date(batch.start_time).getTime();
       if (deviceId && batch.device_id !== deviceId) return false;
       if (status && batch.status !== status) return false;
-      if (Number.isFinite(startMs) && batchStart < startMs) return false;
-      if (Number.isFinite(endMs) && batchStart > endMs) return false;
+      if (range && batchStart < range.startMs) return false;
+      if (range && batchStart > range.endMs) return false;
       return true;
     });
     const sorted = filtered.sort(
@@ -483,43 +483,33 @@ app.get('/api/v1/inspection-batches', async (req, res) => {
       },
       grouping: {
         gap_minutes: 30,
-        time_zone: 'Asia/Shanghai'
+        time_zone: 'Asia/Shanghai',
+        range_start: range ? new Date(range.startMs).toISOString() : null,
+        range_end: range ? new Date(range.endMs).toISOString() : null
       }
     });
   } catch (err) {
-    fail(res, err.message, 500);
+    fail(res, err.message, /时间|日期/.test(err.message) ? 400 : 500);
   }
 });
 
 app.get('/api/v1/inspection-batches/:batchNo', async (req, res) => {
   try {
-    const batches = await loadInspectionBatches();
+    const lookupRange = buildInspectionBatchLookupRange(req.params.batchNo);
+    if (!lookupRange) return fail(res, '巡检批次号格式无效');
+
+    const batches = await loadInspectionBatches(lookupRange);
     const batch = batches.find((item) => item.batch_no === req.params.batchNo);
     if (!batch) return fail(res, '巡检批次不存在', 404);
 
-    const actualTrail = batch.measurements
-      .filter(
-        (measurement) =>
-          measurement.pose_source === 'go2_slam' &&
-          Number(measurement.pose_fix) === 1 &&
-          measurement.pos_x !== null &&
-          measurement.pos_y !== null
-      )
-      .map((measurement) => ({
-        ts: measurement.ts,
-        pos_x: measurement.pos_x,
-        pos_y: measurement.pos_y,
-        pos_z: measurement.pos_z,
-        yaw: measurement.yaw,
-        point_id: measurement.matched_point_id
-      }));
-
     ok(res, {
-      batch,
+      ...buildInspectionBatchDetailPayload(batch, {
+        trendLimit: 300,
+        trailLimit: 1000,
+        measurementLimit: 100
+      }),
       area: config.slam.area,
-      points: config.slam.points,
-      point_readings: pointReadingsForBatch(batch),
-      actual_trail: actualTrail
+      points: config.slam.points
     });
   } catch (err) {
     fail(res, err.message, 500);

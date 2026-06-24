@@ -16,6 +16,10 @@ assert.ok(
   '缺失的点位索引应生成迁移语句'
 );
 assert.ok(
+  statements.some((statement) => statement.includes('ADD KEY idx_tr_ts')),
+  '时间范围查询需要独立ts索引'
+);
+assert.ok(
   !statements.some((statement) => statement.includes('ADD COLUMN area_id')),
   '已存在字段不应重复迁移'
 );

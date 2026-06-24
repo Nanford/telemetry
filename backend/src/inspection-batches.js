@@ -1,5 +1,6 @@
 const DEFAULT_GAP_MINUTES = 30;
 const DEFAULT_TIME_ZONE = 'Asia/Shanghai';
+const DEFAULT_RANGE_HOURS = 24;
 
 const toNumber = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -16,6 +17,71 @@ const toTimestamp = (value) => {
 const toIsoString = (value) => {
   const timestamp = toTimestamp(value);
   return timestamp === null ? null : new Date(timestamp).toISOString();
+};
+
+const resolveInspectionRange = (query = {}, options = {}) => {
+  if (query.range === 'all') return null;
+
+  const nowMs = toTimestamp(options.now ?? Date.now());
+  const endMs = query.end ? toTimestamp(query.end) : nowMs;
+  const startMs = query.start
+    ? toTimestamp(query.start)
+    : endMs - DEFAULT_RANGE_HOURS * 60 * 60 * 1000;
+
+  if (startMs === null || endMs === null) {
+    throw new Error('开始时间或结束时间格式无效');
+  }
+  if (startMs > endMs) {
+    throw new Error('开始时间不能晚于结束时间');
+  }
+
+  return { startMs, endMs };
+};
+
+const buildInspectionScanRange = (range, options = {}) => {
+  if (!range) return null;
+  const gapMinutes = Number(options.gapMinutes || DEFAULT_GAP_MINUTES);
+  const offsetHours = Number(options.timeZoneOffsetHours ?? 8);
+  const offsetMs = offsetHours * 60 * 60 * 1000;
+  const localStart = new Date(range.startMs + offsetMs);
+  const localMidnightUtcMs = Date.UTC(
+    localStart.getUTCFullYear(),
+    localStart.getUTCMonth(),
+    localStart.getUTCDate()
+  ) - offsetMs;
+
+  return {
+    startMs: localMidnightUtcMs - gapMinutes * 60 * 1000,
+    endMs: range.endMs
+  };
+};
+
+const buildInspectionBatchLookupRange = (batchNo, options = {}) => {
+  const match = String(batchNo || '').match(
+    /^(\d{4})(\d{2})(\d{2})\d{2}$/
+  );
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const offsetHours = Number(options.timeZoneOffsetHours ?? 8);
+  const gapMinutes = Number(options.gapMinutes || DEFAULT_GAP_MINUTES);
+  const dayStartMs = Date.UTC(year, month - 1, day) -
+    offsetHours * 60 * 60 * 1000;
+  const localDate = new Date(dayStartMs + offsetHours * 60 * 60 * 1000);
+  if (
+    localDate.getUTCFullYear() !== year ||
+    localDate.getUTCMonth() !== month - 1 ||
+    localDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return {
+    startMs: dayStartMs - gapMinutes * 60 * 1000,
+    endMs: dayStartMs + 48 * 60 * 60 * 1000
+  };
 };
 
 const localDateKey = (value, timeZone = DEFAULT_TIME_ZONE) => {
@@ -157,6 +223,9 @@ const summarizeBatch = (rows, rules, points) => {
     duration_sec: Math.max(0, Math.round((endTimestamp - startTimestamp) / 1000)),
     sample_count: measurements.length,
     point_count: pointIds.size,
+    unmatched_point_count: measurements.length - measurements.filter(
+      (row) => row.matched_point_id
+    ).length,
     actual_trail_points: actualTrailPoints,
     temp_avg: temp.avg,
     temp_min: temp.min,
@@ -234,6 +303,64 @@ const buildInspectionBatches = (
 
 const toBatchListItem = ({ measurements, ...batch }) => batch;
 
+const sampleEvenly = (rows, limit) => {
+  if (rows.length <= limit) return rows;
+  if (limit <= 1) return [rows[0]];
+
+  return Array.from({ length: limit }, (_, index) => {
+    const sourceIndex = Math.round(
+      (index * (rows.length - 1)) / (limit - 1)
+    );
+    return rows[sourceIndex];
+  });
+};
+
+const buildInspectionBatchDetailPayload = (batch, options = {}) => {
+  const trendLimit = Number(options.trendLimit || 300);
+  const trailLimit = Number(options.trailLimit || 1000);
+  const measurementLimit = Number(options.measurementLimit || 100);
+  const measurements = batch.measurements || [];
+  const latestByPoint = new Map();
+
+  for (const measurement of measurements) {
+    if (!measurement.matched_point_id) continue;
+    latestByPoint.set(measurement.matched_point_id, {
+      point_id: measurement.matched_point_id,
+      point_name: measurement.matched_point_name,
+      temp_c: measurement.temp_c,
+      rh: measurement.rh,
+      ts: measurement.ts,
+      temp_abnormal: measurement.temp_abnormal,
+      rh_abnormal: measurement.rh_abnormal
+    });
+  }
+
+  const trail = measurements
+    .filter(
+      (measurement) =>
+        measurement.pose_source === 'go2_slam' &&
+        Number(measurement.pose_fix) === 1 &&
+        measurement.pos_x !== null &&
+        measurement.pos_y !== null
+    )
+    .map((measurement) => ({
+      ts: measurement.ts,
+      pos_x: measurement.pos_x,
+      pos_y: measurement.pos_y,
+      pos_z: measurement.pos_z,
+      yaw: measurement.yaw,
+      point_id: measurement.matched_point_id
+    }));
+
+  return {
+    batch: toBatchListItem(batch),
+    trend: sampleEvenly(measurements, trendLimit),
+    measurements: measurements.slice(-measurementLimit),
+    point_readings: Array.from(latestByPoint.values()),
+    actual_trail: sampleEvenly(trail, trailLimit)
+  };
+};
+
 const summarizeInspectionBatches = (batches, options = {}) => {
   const timeZone = options.timeZone || DEFAULT_TIME_ZONE;
   const todayKey = localDateKey(options.now || Date.now(), timeZone);
@@ -263,8 +390,12 @@ const summarizeInspectionBatches = (batches, options = {}) => {
 };
 
 module.exports = {
+  buildInspectionBatchDetailPayload,
+  buildInspectionBatchLookupRange,
+  buildInspectionScanRange,
   buildInspectionBatches,
   matchInspectionPoint,
+  resolveInspectionRange,
   summarizeInspectionBatches,
   toBatchListItem
 };

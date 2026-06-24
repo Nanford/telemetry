@@ -3,15 +3,18 @@ import { Link } from 'react-router-dom';
 import InspectionStatusPill from '../components/InspectionStatusPill.jsx';
 import { getInspectionBatches } from '../api.js';
 import {
+  createDefaultInspectionRange,
   formatDateTime,
   formatDuration,
   formatMetric
 } from '../lib/inspection.js';
 
+const initialRange = createDefaultInspectionRange();
+
 const InspectionBatches = () => {
   const [status, setStatus] = useState('');
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
+  const [start, setStart] = useState(initialRange.start);
+  const [end, setEnd] = useState(initialRange.end);
   const [page, setPage] = useState(1);
   const [data, setData] = useState({ summary: {}, items: [], pagination: {} });
   const [loading, setLoading] = useState(true);
@@ -23,8 +26,8 @@ const InspectionBatches = () => {
       page,
       page_size: 20,
       status,
-      start: start ? `${start}T00:00:00+08:00` : '',
-      end: end ? `${end}T23:59:59+08:00` : ''
+      start: start ? `${start}:00+08:00` : '',
+      end: end ? `${end}:59+08:00` : ''
     };
 
     setLoading(true);
@@ -51,12 +54,12 @@ const InspectionBatches = () => {
     <div className="page">
       <div className="filter-bar inspection-filter">
         <div className="filter-group">
-          <span className="filter-label">开始日期</span>
-          <input className="select" type="date" value={start} onChange={updateFilter(setStart)} />
+          <span className="filter-label">开始时间</span>
+          <input className="select" type="datetime-local" value={start} onChange={updateFilter(setStart)} />
         </div>
         <div className="filter-group">
-          <span className="filter-label">结束日期</span>
-          <input className="select" type="date" value={end} onChange={updateFilter(setEnd)} />
+          <span className="filter-label">结束时间</span>
+          <input className="select" type="datetime-local" value={end} onChange={updateFilter(setEnd)} />
         </div>
         <div className="filter-group">
           <span className="filter-label">判定状态</span>
@@ -67,7 +70,7 @@ const InspectionBatches = () => {
             <option value="undetermined">未判定</option>
           </select>
         </div>
-        <div className="filter-note">批次边界：同一设备相邻有效采集间隔超过30分钟</div>
+        <div className="filter-note">默认最近24小时 · 同一设备相邻有效采集间隔超过30分钟产生新批次</div>
       </div>
 
       {error && <div className="page-error">{error}</div>}
