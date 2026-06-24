@@ -337,6 +337,18 @@ cd /opt/telemetry/backend
 npm run demo:inspection
 ```
 
+如果生产环境由 systemd 通过 `/etc/telemetry-api.env` 注入配置，应使用：
+
+```bash
+sudo bash -lc '
+set -a
+source /etc/telemetry-api.env
+set +a
+cd /opt/telemetry/backend
+npm run demo:inspection -- --device-id go2-demo-$(date +%Y%m%d%H%M%S)
+'
+```
+
 脚本会使用当前后端环境中的 `MQTT_URL`、`MQTT_USERNAME` 和
 `MQTT_PASSWORD`，生成一个唯一测试设备，并依次上报：
 
