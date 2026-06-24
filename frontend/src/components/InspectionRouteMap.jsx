@@ -7,7 +7,7 @@ import {
 
 const FRAME = { x: 48, y: 34, width: 1184 };
 const PLOT = { x: 92, width: 1096, top: 258, bottomPadding: 104 };
-const CARD = { width: 190, normalHeight: 110, alertHeight: 138 };
+const CARD = { width: 170, normalHeight: 94, alertHeight: 118 };
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -209,9 +209,9 @@ const InspectionRouteMap = ({
               FRAME.x + FRAME.width - CARD.width - 18
             );
             const cardY = clamp(
-              nodeY - cardHeight - 100,
+              nodeY - cardHeight - 92,
               FRAME.y + 28,
-              nodeY - cardHeight - 54
+              nodeY - cardHeight - 48
             );
             const connectorX = clamp(
               nodeX,
@@ -239,16 +239,16 @@ const InspectionRouteMap = ({
                 {reading && (
                   <>
                     <polyline
-                      points={`${connectorX},${cardY + cardHeight} ${connectorX},${nodeY - 34} ${nodeX},${nodeY - 18}`}
+                      points={`${connectorX},${cardY + cardHeight} ${connectorX},${nodeY - 29} ${nodeX},${nodeY - 15}`}
                       fill="none"
                       stroke={statusColor}
-                      strokeWidth="2"
+                      strokeWidth="1.5"
                       opacity={active ? 1 : 0.62}
                     />
                     <circle
                       cx={connectorX}
                       cy={cardY + cardHeight}
-                      r="4"
+                      r="3"
                       fill={statusColor}
                     />
 
@@ -273,93 +273,93 @@ const InspectionRouteMap = ({
                       <rect
                         x={cardX}
                         y={cardY}
-                        width="6"
+                        width="5"
                         height={cardHeight}
                         rx="6"
                         fill={statusColor}
                       />
                       <line
-                        x1={cardX + 20}
-                        y1={cardY + 55}
-                        x2={cardX + CARD.width - 16}
-                        y2={cardY + 55}
+                        x1={cardX + 18}
+                        y1={cardY + 47}
+                        x2={cardX + CARD.width - 14}
+                        y2={cardY + 47}
                         stroke="rgba(205,231,255,0.16)"
                         strokeWidth="1"
                       />
 
                       <text
-                        x={cardX + 22}
-                        y={cardY + 25}
+                        x={cardX + 18}
+                        y={cardY + 21}
                         fill="rgba(205,231,255,0.62)"
-                        fontSize="13"
+                        fontSize="11"
                       >
                         温度
                       </text>
                       <text
-                        x={cardX + CARD.width - 18}
-                        y={cardY + 36}
+                        x={cardX + CARD.width - 15}
+                        y={cardY + 31}
                         textAnchor="end"
                         fill="#ffffff"
-                        fontSize="26"
+                        fontSize="20"
                         fontWeight="700"
                       >
                         {formatMetric(reading.temp_c)}
-                        <tspan fontSize="16" fontWeight="500"> ℃</tspan>
+                        <tspan fontSize="12" fontWeight="500"> ℃</tspan>
                       </text>
 
                       <text
-                        x={cardX + 22}
-                        y={cardY + 80}
+                        x={cardX + 18}
+                        y={cardY + 66}
                         fill="rgba(205,231,255,0.62)"
-                        fontSize="13"
+                        fontSize="11"
                       >
                         湿度
                       </text>
                       <text
-                        x={cardX + CARD.width - 18}
-                        y={cardY + 91}
+                        x={cardX + CARD.width - 15}
+                        y={cardY + 78}
                         textAnchor="end"
                         fill="#ffffff"
-                        fontSize="26"
+                        fontSize="20"
                         fontWeight="700"
                       >
                         {formatMetric(reading.rh)}
-                        <tspan fontSize="16" fontWeight="500"> %</tspan>
+                        <tspan fontSize="12" fontWeight="500"> %</tspan>
                       </text>
 
                       {abnormal && (
                         <>
                           <line
                             x1={cardX + 6}
-                            y1={cardY + 108}
+                            y1={cardY + 94}
                             x2={cardX + CARD.width}
-                            y2={cardY + 108}
+                            y2={cardY + 94}
                             stroke="rgba(255,113,56,0.38)"
                             strokeWidth="1"
                           />
                           <circle
-                            cx={cardX + 25}
-                            cy={cardY + 123}
-                            r="8"
+                            cx={cardX + 21}
+                            cy={cardY + 106}
+                            r="7"
                             fill="rgba(255,172,45,0.16)"
                             stroke="#ffad2d"
                             strokeWidth="1.5"
                           />
                           <text
-                            x={cardX + 25}
-                            y={cardY + 127}
+                            x={cardX + 21}
+                            y={cardY + 110}
                             textAnchor="middle"
                             fill="#ffba45"
-                            fontSize="12"
+                            fontSize="10"
                             fontWeight="700"
                           >
                             !
                           </text>
                           <text
-                            x={cardX + 42}
-                            y={cardY + 128}
+                            x={cardX + 35}
+                            y={cardY + 110}
                             fill="#ffd2bd"
-                            fontSize="14"
+                            fontSize="12"
                             fontWeight="700"
                           >
                             {reading.rh_abnormal ? '湿度超限' : '温度超限'}
@@ -376,7 +376,7 @@ const InspectionRouteMap = ({
                 <circle
                   cx={nodeX}
                   cy={nodeY}
-                  r={active ? 25 : 20}
+                  r={active ? 20 : 16}
                   fill="none"
                   stroke={statusColor}
                   strokeWidth="2"
@@ -386,27 +386,27 @@ const InspectionRouteMap = ({
                 <circle
                   cx={nodeX}
                   cy={nodeY}
-                  r="11"
+                  r="9"
                   fill={reading ? statusColor : '#2f7dff'}
                   stroke="#ffffff"
-                  strokeWidth="3"
+                  strokeWidth="2.5"
                 />
                 <text
                   x={nodeX}
-                  y={nodeY + 47}
+                  y={nodeY + 38}
                   textAnchor="middle"
                   fill="#ffffff"
-                  fontSize="20"
+                  fontSize="16"
                   fontWeight="700"
                 >
                   {point.id}
                 </text>
                 <text
                   x={nodeX}
-                  y={nodeY + 70}
+                  y={nodeY + 57}
                   textAnchor="middle"
                   fill="rgba(205,231,255,0.72)"
-                  fontSize="14"
+                  fontSize="11"
                 >
                   {point.name || '巡检点位'}
                 </text>

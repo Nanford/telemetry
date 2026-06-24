@@ -1201,67 +1201,11 @@ body::after {
     grid-template-columns: 1fr;
   }
 
-  /* 中等宽度下改为横向导航，避免完整侧栏覆盖巡检内容。 */
   .sidebar {
     position: sticky;
     top: 0;
     z-index: 10;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 18px;
-    min-height: 0;
-    padding: 12px 20px;
-    border-radius: 0 0 18px 18px;
-    overflow: visible;
-  }
-
-  .sidebar::after {
-    display: none;
-  }
-
-  .brand {
-    flex: 0 0 auto;
-  }
-
-  .brand-mark {
-    width: 38px;
-    height: 38px;
-    border-radius: 12px;
-  }
-
-  .brand-title {
-    font-size: 17px;
-  }
-
-  .brand-subtitle {
-    display: none;
-  }
-
-  .nav {
-    flex-direction: row;
-    gap: 6px;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(101, 200, 255, 0.28) transparent;
-  }
-
-  .nav-item {
-    flex: 0 0 auto;
-    gap: 7px;
-    padding: 9px 10px;
-    white-space: nowrap;
-  }
-
-  .nav-icon {
-    width: 24px;
-    height: 24px;
-    border-radius: 8px;
-  }
-
-  .sidebar-footer {
-    display: none;
+    border-radius: 0 0 24px 24px;
   }
 
   .main {
@@ -1889,22 +1833,7 @@ body::after {
   }
 
   .sidebar {
-    grid-template-columns: 1fr;
-    gap: 10px;
-    padding: 12px 16px 10px;
-  }
-
-  .brand {
-    justify-content: space-between;
-  }
-
-  .nav {
-    margin-inline: -4px;
-    padding: 0 4px 4px;
-  }
-
-  .nav-item {
-    padding: 8px 10px;
+    padding: 20px;
   }
 
   .latest-inspection-main,
