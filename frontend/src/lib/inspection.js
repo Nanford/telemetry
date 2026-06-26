@@ -39,6 +39,11 @@ export const formatMetric = (value, digits = 1) => {
 };
 
 const toShanghaiDateTimeLocal = (value) => {
+  const fields = getShanghaiDateTimeFields(value);
+  return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
+};
+
+const getShanghaiDateTimeFields = (value) => {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric',
@@ -51,12 +56,34 @@ const toShanghaiDateTimeLocal = (value) => {
   const fields = Object.fromEntries(
     parts.map((part) => [part.type, part.value])
   );
-  return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
+  return fields;
+};
+
+const daysInMonth = (year, month) => (
+  new Date(Date.UTC(year, month, 0)).getUTCDate()
+);
+
+const subtractShanghaiMonths = (value, months = 1) => {
+  const fields = getShanghaiDateTimeFields(value);
+  const sourceYear = Number(fields.year);
+  const sourceMonth = Number(fields.month);
+  const sourceDay = Number(fields.day);
+  const targetMonthOffset = sourceMonth - 1 - months;
+  const targetYear = sourceYear + Math.floor(targetMonthOffset / 12);
+  const targetMonthIndex = ((targetMonthOffset % 12) + 12) % 12;
+  const targetMonth = targetMonthIndex + 1;
+  const targetDay = Math.min(sourceDay, daysInMonth(targetYear, targetMonth));
+  const pad = (number) => String(number).padStart(2, '0');
+
+  // Build an explicit Shanghai timestamp so the default range is stable across client time zones.
+  return new Date(
+    `${targetYear}-${pad(targetMonth)}-${pad(targetDay)}T${fields.hour}:${fields.minute}:00+08:00`
+  );
 };
 
 export const createDefaultInspectionRange = (now = new Date()) => {
   const end = new Date(now);
-  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  const start = subtractShanghaiMonths(end);
   return {
     start: toShanghaiDateTimeLocal(start),
     end: toShanghaiDateTimeLocal(end)

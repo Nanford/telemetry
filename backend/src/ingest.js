@@ -50,7 +50,7 @@ let ruleCache = [];       // all enabled rules
 let ruleCacheTs = 0;      // last refresh timestamp
 
 const refreshRuleCache = async () => {
-  const [rows] = await query('SELECT * FROM alert_rules WHERE enabled = 1');
+  const [rows] = await query('SELECT * FROM alert_rules WHERE enabled = 1 AND deleted_at IS NULL');
   ruleCache = rows;
   ruleCacheTs = Date.now();
 };

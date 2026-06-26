@@ -23,6 +23,7 @@ const Rules = () => {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [actionId, setActionId] = useState(null);
+  const [error, setError] = useState('');
 
   const isEditing = editingId !== null;
 
@@ -132,6 +133,7 @@ const Rules = () => {
   const handleToggleEnabled = async (rule) => {
     if (actionId) return;
     setActionId(rule.id);
+    setError('');
     try {
       const payload = buildPayloadFromRule(rule, { enabled: !toEnabled(rule.enabled) });
       await updateRule(rule.id, payload);
@@ -139,6 +141,8 @@ const Rules = () => {
       if (editingId === rule.id) {
         startEdit({ ...rule, ...payload, enabled: payload.enabled });
       }
+    } catch (err) {
+      setError(err.message || '规则状态更新失败');
     } finally {
       setActionId(null);
     }
@@ -149,10 +153,13 @@ const Rules = () => {
     const ok = window.confirm(`确认删除规则「${rule.name || rule.id}」？`);
     if (!ok) return;
     setActionId(rule.id);
+    setError('');
     try {
       await deleteRule(rule.id);
       if (editingId === rule.id) cancelEdit();
       await load();
+    } catch (err) {
+      setError(err.message || '规则删除失败');
     } finally {
       setActionId(null);
     }
@@ -162,6 +169,7 @@ const Rules = () => {
     event.preventDefault();
     if (saving) return;
     setSaving(true);
+    setError('');
 
     const payload = {
       name: form.name,
@@ -177,16 +185,21 @@ const Rules = () => {
       enabled: form.enabled ? 1 : 0
     };
 
-    if (isEditing) {
-      await updateRule(editingId, payload);
-      setEditingId(null);
-    } else {
-      await createRule(payload);
-    }
+    try {
+      if (isEditing) {
+        await updateRule(editingId, payload);
+        setEditingId(null);
+      } else {
+        await createRule(payload);
+      }
 
-    resetForm();
-    setSaving(false);
-    load();
+      resetForm();
+      await load();
+    } catch (err) {
+      setError(err.message || '规则保存失败');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -344,6 +357,7 @@ const Rules = () => {
               {saving ? '保存中...' : isEditing ? '更新规则' : '保存规则'}
             </button>
           </div>
+          {error && <div className="page-error">{error}</div>}
         </form>
       </div>
 

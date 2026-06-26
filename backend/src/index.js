@@ -5,6 +5,7 @@ const { pool, query } = require('./db');
 const { autoInitGeofences } = require('./geofence-auto');
 const { parseTime, toMysqlDatetime } = require('./utils');
 const { startIngest, invalidateRuleCache, flushBuffer, onTelemetry } = require('./ingest');
+const { ACTIVE_ALERT_RULE_WHERE, resolveAlertRuleDeleteMode } = require('./alert-rules');
 const {
   buildInspectionBatchDetailPayload,
   buildInspectionBatchLookupRange,
@@ -59,7 +60,7 @@ const loadInspectionBatches = async (scanRange = null) => {
     SELECT id, scope_type, zone_id, sensor_id,
            temp_high, temp_low, rh_high, rh_low
     FROM alert_rules
-    WHERE enabled = 1
+    WHERE enabled = 1 AND ${ACTIVE_ALERT_RULE_WHERE}
   `);
 
   return buildInspectionBatches(telemetryRows, rules, config.slam.points, {
@@ -168,7 +169,7 @@ app.get('/api/v1/overview', async (_req, res) => {
       ) latest ON tr.zone_id = latest.zone_id AND tr.ts = latest.max_ts
     `);
     const [rules] = await query(
-      `SELECT * FROM alert_rules WHERE scope_type = 'zone' AND enabled = 1`
+      `SELECT * FROM alert_rules WHERE scope_type = 'zone' AND enabled = 1 AND ${ACTIVE_ALERT_RULE_WHERE}`
     );
 
     const ruleMap = new Map();
@@ -676,7 +677,7 @@ app.post('/api/v1/alerts/:id/ack', async (req, res) => {
 
 app.get('/api/v1/alert-rules', async (_req, res) => {
   try {
-    const [rows] = await query('SELECT * FROM alert_rules ORDER BY created_at DESC');
+    const [rows] = await query(`SELECT * FROM alert_rules WHERE ${ACTIVE_ALERT_RULE_WHERE} ORDER BY created_at DESC`);
     ok(res, rows);
   } catch (err) {
     fail(res, err.message, 500);
@@ -721,13 +722,13 @@ app.put('/api/v1/alert-rules/:id', async (req, res) => {
     const id = req.params.id;
     const rule = req.body;
 
-    await query(
+    const [result] = await query(
       `
         UPDATE alert_rules
         SET name = ?, scope_type = ?, zone_id = ?, sensor_id = ?,
             temp_high = ?, temp_low = ?, rh_high = ?, rh_low = ?,
             trigger_duration_sec = ?, recover_duration_sec = ?, enabled = ?
-        WHERE id = ?
+        WHERE id = ? AND ${ACTIVE_ALERT_RULE_WHERE}
       `,
       [
         rule.name,
@@ -745,6 +746,8 @@ app.put('/api/v1/alert-rules/:id', async (req, res) => {
       ]
     );
 
+    if (!result.affectedRows) return fail(res, '规则不存在或已删除', 404);
+
     invalidateRuleCache();
     ok(res, { id });
   } catch (err) {
@@ -754,9 +757,19 @@ app.put('/api/v1/alert-rules/:id', async (req, res) => {
 
 app.delete('/api/v1/alert-rules/:id', async (req, res) => {
   try {
-    await query('DELETE FROM alert_rules WHERE id = ?', [req.params.id]);
+    const id = req.params.id;
+    const [alertRows] = await query('SELECT COUNT(*) AS total FROM alerts WHERE rule_id = ?', [id]);
+    const linkedAlertCount = Number(alertRows[0]?.total || 0);
+    const mode = resolveAlertRuleDeleteMode(linkedAlertCount);
+    const sql = mode === 'archive'
+      ? `UPDATE alert_rules SET enabled = 0, deleted_at = UTC_TIMESTAMP() WHERE id = ? AND ${ACTIVE_ALERT_RULE_WHERE}`
+      : `DELETE FROM alert_rules WHERE id = ? AND ${ACTIVE_ALERT_RULE_WHERE}`;
+    const [result] = await query(sql, [id]);
+
+    if (!result.affectedRows) return fail(res, '规则不存在或已删除', 404);
+
     invalidateRuleCache();
-    ok(res, { id: req.params.id });
+    ok(res, { id, mode, linked_alerts: linkedAlertCount });
   } catch (err) {
     fail(res, err.message, 500);
   }

@@ -140,7 +140,7 @@ const defaultRange = resolveInspectionRange({}, {
   now: '2026-06-24T12:00:00.000Z'
 });
 assert.deepStrictEqual(defaultRange, {
-  startMs: Date.parse('2026-06-23T12:00:00.000Z'),
+  startMs: Date.parse('2026-05-24T12:00:00.000Z'),
   endMs: Date.parse('2026-06-24T12:00:00.000Z')
 });
 
@@ -158,7 +158,7 @@ assert.deepStrictEqual(
     timeZoneOffsetHours: 8
   }),
   {
-    startMs: Date.parse('2026-06-22T15:30:00.000Z'),
+    startMs: Date.parse('2026-05-23T15:30:00.000Z'),
     endMs: Date.parse('2026-06-24T12:00:00.000Z')
   },
   '扫描起点应回退到开始日期的上海零点前30分钟，以保持批次号稳定'

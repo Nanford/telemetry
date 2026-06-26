@@ -4,7 +4,8 @@ const { buildTelemetryMigrationStatements } = require('../src/schema-migrations'
 
 const statements = buildTelemetryMigrationStatements(
   new Set(['area_id', 'pose_source']),
-  new Set(['idx_tr_area_ts'])
+  new Set(['idx_tr_area_ts']),
+  new Set()
 );
 
 assert.ok(
@@ -26,6 +27,22 @@ assert.ok(
 assert.ok(
   !statements.some((statement) => statement.includes('ADD KEY idx_tr_area_ts')),
   '已存在索引不应重复迁移'
+);
+
+assert.ok(
+  statements.some((statement) => statement.includes('ALTER TABLE alert_rules ADD COLUMN deleted_at')),
+  'alert_rules needs deleted_at for archived threshold rules'
+);
+
+const existingRuleStatements = buildTelemetryMigrationStatements(
+  new Set(['area_id', 'pose_source']),
+  new Set(['idx_tr_area_ts']),
+  new Set(['deleted_at'])
+);
+
+assert.ok(
+  !existingRuleStatements.some((statement) => statement.includes('ALTER TABLE alert_rules ADD COLUMN deleted_at')),
+  'alert_rules deleted_at migration should not repeat'
 );
 
 console.log('schema-migrations: OK');

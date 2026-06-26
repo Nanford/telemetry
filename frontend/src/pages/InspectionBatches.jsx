@@ -70,7 +70,7 @@ const InspectionBatches = () => {
             <option value="undetermined">未判定</option>
           </select>
         </div>
-        <div className="filter-note">默认最近24小时 · 同一设备相邻有效采集间隔超过30分钟产生新批次</div>
+        <div className="filter-note">默认最近1个月 · 同一设备相邻有效采集间隔超过30分钟产生新批次</div>
       </div>
 
       {error && <div className="page-error">{error}</div>}

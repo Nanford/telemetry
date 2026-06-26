@@ -16,9 +16,14 @@ const TELEMETRY_INDEXES = [
   ['idx_tr_point_ts', 'point_id, ts']
 ];
 
+const ALERT_RULE_COLUMNS = [
+  ['deleted_at', 'DATETIME NULL']
+];
+
 const buildTelemetryMigrationStatements = (
   existingColumns = new Set(),
-  existingIndexes = new Set()
+  existingIndexes = new Set(),
+  existingAlertRuleColumns = new Set()
 ) => {
   const statements = [];
 
@@ -31,6 +36,12 @@ const buildTelemetryMigrationStatements = (
   for (const [name, columns] of TELEMETRY_INDEXES) {
     if (!existingIndexes.has(name)) {
       statements.push(`ALTER TABLE telemetry_raw ADD KEY ${name} (${columns})`);
+    }
+  }
+
+  for (const [name, definition] of ALERT_RULE_COLUMNS) {
+    if (!existingAlertRuleColumns.has(name)) {
+      statements.push(`ALTER TABLE alert_rules ADD COLUMN ${name} ${definition}`);
     }
   }
 
@@ -50,10 +61,17 @@ const ensureTelemetrySchema = async (query) => {
     WHERE TABLE_SCHEMA = DATABASE()
       AND TABLE_NAME = 'telemetry_raw'
   `);
+  const [alertRuleColumnRows] = await query(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'alert_rules'
+  `);
 
   const statements = buildTelemetryMigrationStatements(
     new Set(columnRows.map((row) => row.COLUMN_NAME)),
-    new Set(indexRows.map((row) => row.INDEX_NAME))
+    new Set(indexRows.map((row) => row.INDEX_NAME)),
+    new Set(alertRuleColumnRows.map((row) => row.COLUMN_NAME))
   );
 
   for (const statement of statements) {

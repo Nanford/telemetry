@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   trigger_duration_sec INT NOT NULL DEFAULT 30,
   recover_duration_sec INT NOT NULL DEFAULT 30,
   enabled TINYINT(1) NOT NULL DEFAULT 1,
+  deleted_at DATETIME NULL,
 
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_rule_zone (zone_id),

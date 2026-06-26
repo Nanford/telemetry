@@ -1,6 +1,6 @@
 const DEFAULT_GAP_MINUTES = 30;
 const DEFAULT_TIME_ZONE = 'Asia/Shanghai';
-const DEFAULT_RANGE_HOURS = 24;
+const DEFAULT_RANGE_MONTHS = 1;
 
 const toNumber = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -19,6 +19,31 @@ const toIsoString = (value) => {
   return timestamp === null ? null : new Date(timestamp).toISOString();
 };
 
+const subtractUtcMonths = (timestamp, months = DEFAULT_RANGE_MONTHS) => {
+  const date = new Date(timestamp);
+  const targetMonthStart = new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth() - months,
+    1
+  ));
+  const daysInTargetMonth = new Date(Date.UTC(
+    targetMonthStart.getUTCFullYear(),
+    targetMonthStart.getUTCMonth() + 1,
+    0
+  )).getUTCDate();
+
+  // Clamp month-end dates so Mar 31 minus one month becomes Feb 28/29.
+  return Date.UTC(
+    targetMonthStart.getUTCFullYear(),
+    targetMonthStart.getUTCMonth(),
+    Math.min(date.getUTCDate(), daysInTargetMonth),
+    date.getUTCHours(),
+    date.getUTCMinutes(),
+    date.getUTCSeconds(),
+    date.getUTCMilliseconds()
+  );
+};
+
 const resolveInspectionRange = (query = {}, options = {}) => {
   if (query.range === 'all') return null;
 
@@ -26,7 +51,7 @@ const resolveInspectionRange = (query = {}, options = {}) => {
   const endMs = query.end ? toTimestamp(query.end) : nowMs;
   const startMs = query.start
     ? toTimestamp(query.start)
-    : endMs - DEFAULT_RANGE_HOURS * 60 * 60 * 1000;
+    : subtractUtcMonths(endMs);
 
   if (startMs === null || endMs === null) {
     throw new Error('开始时间或结束时间格式无效');
