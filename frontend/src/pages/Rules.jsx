@@ -15,6 +15,12 @@ const emptyForm = {
   enabled: true
 };
 
+const formatBound = (value, unit) => (
+  value === null || value === undefined || value === '' ? '--' : `${value}${unit}`
+);
+
+const formatRange = (low, high, unit) => `${formatBound(low, unit)} ~ ${formatBound(high, unit)}`;
+
 const Rules = () => {
   const [rules, setRules] = useState([]);
   const [zones, setZones] = useState([]);
@@ -380,15 +386,11 @@ const Rules = () => {
               <div className="rule-body">
                 <div>
                   <div className="rule-label">温度</div>
-                  <div className="rule-value">
-                    {rule.temp_low ?? '--'}°C ~ {rule.temp_high ?? '--'}°C
-                  </div>
+                  <div className="rule-value">{formatRange(rule.temp_low, rule.temp_high, '℃')}</div>
                 </div>
                 <div>
                   <div className="rule-label">湿度</div>
-                  <div className="rule-value">
-                    {rule.rh_low ?? '--'}% ~ {rule.rh_high ?? '--'}%
-                  </div>
+                  <div className="rule-value">{formatRange(rule.rh_low, rule.rh_high, '%')}</div>
                 </div>
                 <div>
                   <div className="rule-label">触发持续</div>

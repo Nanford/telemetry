@@ -42,17 +42,36 @@ const TrendChart = ({ data, title, subtitle }) => (
         <div className="card-subtitle">{subtitle}</div>
       </div>
       <div className="chart-legend">
-        <span><i className="legend-dot temp" /> 温度</span>
-        <span><i className="legend-dot rh" /> 湿度</span>
+        <span><i className="legend-dot temp" /> 温度 (℃)</span>
+        <span><i className="legend-dot rh" /> 湿度 (%)</span>
       </div>
     </div>
     <div className="chart-body">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
+        <LineChart data={data} margin={{ top: 10, right: 24, left: 8, bottom: 18 }}>
           <CartesianGrid strokeDasharray="4 8" stroke="rgba(62,124,219,0.2)" />
-          <XAxis dataKey="ts" tickFormatter={formatTime} stroke="#6b8bbf" fontSize={12} />
-          <YAxis yAxisId="left" stroke="#3f6bb4" fontSize={12} />
-          <YAxis yAxisId="right" orientation="right" stroke="#3fb3ff" fontSize={12} />
+          <XAxis
+            dataKey="ts"
+            tickFormatter={formatTime}
+            stroke="#6b8bbf"
+            fontSize={12}
+            label={{ value: '采集时间', position: 'insideBottom', offset: -10, fill: '#6b8bbf', fontSize: 12 }}
+          />
+          <YAxis
+            yAxisId="left"
+            stroke="#3f6bb4"
+            fontSize={12}
+            width={46}
+            label={{ value: '温度 (℃)', angle: -90, position: 'insideLeft', fill: '#3f6bb4', fontSize: 12 }}
+          />
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            stroke="#3fb3ff"
+            fontSize={12}
+            width={46}
+            label={{ value: '湿度 (%)', angle: 90, position: 'insideRight', fill: '#3fb3ff', fontSize: 12 }}
+          />
           <Tooltip content={<CustomTooltip />} />
           <Line
             type="monotone"

@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import Overview from './pages/Overview.jsx';
 import InspectionBatches from './pages/InspectionBatches.jsx';
 import InspectionBatchDetail from './pages/InspectionBatchDetail.jsx';
@@ -8,7 +8,6 @@ import ZoneDetail from './pages/ZoneDetail.jsx';
 import MapView from './pages/MapView.jsx';
 import Alerts from './pages/Alerts.jsx';
 import Rules from './pages/Rules.jsx';
-import Devices from './pages/Devices.jsx';
 import { onConnectionChange, isUsingMock } from './api.js';
 
 const navItems = [
@@ -18,8 +17,7 @@ const navItems = [
   { to: '/map', label: '巡检地图', icon: '⟡' },
   { to: '/reports', label: '数据报表', icon: '▥' },
   { to: '/alerts', label: '告警中心', icon: '⬡' },
-  { to: '/rules', label: '阈值规则', icon: '⟠' },
-  { to: '/devices', label: '采集终端', icon: '◌' }
+  { to: '/rules', label: '阈值规则', icon: '⟠' }
 ];
 
 const AppShell = () => {
@@ -98,7 +96,7 @@ const AppShell = () => {
           <Route path="/map" element={<MapView />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/rules" element={<Rules />} />
-          <Route path="/devices" element={<Devices />} />
+          <Route path="/devices" element={<Navigate to="/" replace />} />
         </Routes>
       </section>
     </main>

@@ -28,20 +28,22 @@ const BatchTrendChart = ({ batches = [] }) => {
   return (
     <div className="chart-body batch-trend-chart">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 8 }}>
+        <LineChart data={data} margin={{ top: 12, right: 18, left: 8, bottom: 20 }}>
           <CartesianGrid stroke="rgba(47,125,255,0.1)" strokeDasharray="4 4" />
           <XAxis
             dataKey="batch_no"
             tick={{ fill: '#5b6f95', fontSize: 11 }}
             tickLine={false}
             axisLine={false}
+            label={{ value: '巡检批次', position: 'insideBottom', offset: -12, fill: '#5b6f95', fontSize: 11 }}
           />
           <YAxis
             yAxisId="temp"
             tick={{ fill: '#5b6f95', fontSize: 11 }}
             tickLine={false}
             axisLine={false}
-            width={38}
+            width={48}
+            label={{ value: '平均温度 (℃)', angle: -90, position: 'insideLeft', fill: '#5b6f95', fontSize: 11 }}
           />
           <YAxis
             yAxisId="rh"
@@ -49,7 +51,8 @@ const BatchTrendChart = ({ batches = [] }) => {
             tick={{ fill: '#5b6f95', fontSize: 11 }}
             tickLine={false}
             axisLine={false}
-            width={38}
+            width={48}
+            label={{ value: '平均湿度 (%)', angle: 90, position: 'insideRight', fill: '#5b6f95', fontSize: 11 }}
           />
           <Tooltip
             content={({ active, payload }) => {
@@ -65,12 +68,12 @@ const BatchTrendChart = ({ batches = [] }) => {
               );
             }}
           />
-          <Legend />
+          <Legend verticalAlign="top" align="right" height={28} iconType="line" />
           <Line
             yAxisId="temp"
             type="monotone"
             dataKey="temp_avg"
-            name="平均温度"
+            name="平均温度 (℃)"
             stroke="#ff6b6b"
             strokeWidth={2.2}
             dot={{ r: 3 }}
@@ -80,7 +83,7 @@ const BatchTrendChart = ({ batches = [] }) => {
             yAxisId="rh"
             type="monotone"
             dataKey="rh_avg"
-            name="平均湿度"
+            name="平均湿度 (%)"
             stroke="#2f7dff"
             strokeWidth={2.2}
             dot={{ r: 3 }}

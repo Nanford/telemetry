@@ -98,10 +98,10 @@ const InspectionReports = () => {
           <div className="report-row report-head">
             <span>批次号</span>
             <span>开始时间</span>
-            <span>采集数</span>
-            <span>平均温度</span>
-            <span>平均湿度</span>
-            <span>异常记录</span>
+            <span>采集数（条）</span>
+            <span>平均温度（℃）</span>
+            <span>平均湿度（%）</span>
+            <span>异常记录（条）</span>
             <span>状态</span>
           </div>
           {data.items.map((batch) => (

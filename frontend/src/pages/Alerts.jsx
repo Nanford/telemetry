@@ -3,15 +3,42 @@ import { getAlerts } from '../api.js';
 
 const POLL_INTERVAL = 15_000;
 const statuses = ['all', 'open', 'acked', 'closed'];
+const statusLabels = {
+  all: '全部',
+  open: '待处理',
+  acked: '已确认',
+  closed: '已关闭'
+};
+
 const metricLabels = {
   temp: '温度',
   temp_c: '温度',
   rh: '湿度'
 };
 
+const metricUnits = {
+  temp: '℃',
+  temp_c: '℃',
+  rh: '%'
+};
+
 const getMetricLabel = (metric) => {
   if (!metric) return '--';
   return metricLabels[metric] || metric;
+};
+
+const getStatusLabel = (status) => statusLabels[status] || status || '--';
+const getStatusClass = (status) => {
+  if (status === 'open') return 'warning';
+  if (status === 'acked') return 'undetermined';
+  return '';
+};
+
+const formatCurrentValue = (alert) => {
+  if (alert?.current_value === null || alert?.current_value === undefined || alert?.current_value === '') {
+    return '--';
+  }
+  return `${alert.current_value}${metricUnits[alert.metric] || ''}`;
 };
 
 const formatAlertMessage = (alert) => {
@@ -90,7 +117,7 @@ const Alerts = () => {
                 className={`chip ${statusFilter === status ? 'active' : ''}`}
                 onClick={() => setStatusFilter(status)}
               >
-                {status === 'all' ? '全部' : status}
+                {getStatusLabel(status)}
               </button>
             ))}
           </div>
@@ -120,10 +147,10 @@ const Alerts = () => {
               <span>{alert.zone_id || '--'}</span>
               <span>{getMetricLabel(alert.metric)}</span>
               <span className={alert.status === 'closed' ? 'value-ok' : 'value-alert'}>
-                {alert.current_value ?? '--'}
+                {formatCurrentValue(alert)}
               </span>
-              <span className={`status-pill ${alert.status === 'open' ? 'warning' : ''}`}>
-                {alert.status}
+              <span className={`status-pill ${getStatusClass(alert.status)}`}>
+                {getStatusLabel(alert.status)}
               </span>
               <span>{new Date(alert.last_trigger_at).toLocaleString()}</span>
             </div>
