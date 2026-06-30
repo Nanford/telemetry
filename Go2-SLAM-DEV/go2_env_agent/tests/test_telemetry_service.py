@@ -59,7 +59,7 @@ class DummyUploader:
 def test_collect_once_keeps_zone_id_and_area_id_separate():
     spool = DummySpool()
     service = TelemetryService(
-        device_id="go2_01",
+        device_id="Go2",
         position_provider=DummyPositionProvider(),
         dht_reader=DummyDhtReader(),
         point_matcher=DummyMatcher(),

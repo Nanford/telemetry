@@ -372,7 +372,7 @@ time.sleep(3)
 
 if connected['ok']:
     payload = {
-        'device_id': 'go2_test',
+        'device_id': 'Go2',
         'ts': int(time.time()),
         'temp_c': 25,
         'rh': 60,
@@ -384,7 +384,7 @@ if connected['ok']:
         'sample_type': 'point_valid',
         'errors': []
     }
-    info = client.publish('devices/go2_test/telemetry', json.dumps(payload), qos=1)
+    info = client.publish('devices/Go2/telemetry', json.dumps(payload), qos=1)
     info.wait_for_publish()
     print(f'Published: mid={info.mid}')
     print(f'Payload: {json.dumps(payload, indent=2)}')
@@ -408,7 +408,7 @@ client.disconnect()
 ```sql
 SELECT device_id, zone_id, temp_c, rh, pose_source, pos_x, pos_y, point_id, sample_type
 FROM telemetry_raw
-WHERE device_id = 'go2_test'
+WHERE device_id = 'Go2'
 ORDER BY ts DESC
 LIMIT 5;
 ```
@@ -432,12 +432,12 @@ nano /opt/go2-env-agent/config/settings.env
 **必须修改的配置项**：
 
 ```env
-DEVICE_ID=go2_01            # 你的设备ID
+DEVICE_ID=Go2               # 你的设备ID
 DHT_GPIO=D4                 # DHT11 的 GPIO 引脚
 GO2_NET_IFACE=eth0          # 连接 Go2 的网口名
 MQTT_HOST=你的MQTT地址       # MQTT Broker 地址
 MQTT_PORT=1883              # MQTT Broker 端口
-MQTT_TOPIC=devices/go2_01/telemetry
+MQTT_TOPIC=devices/Go2/telemetry
 ```
 
 #### 5.2 创建数据目录
@@ -465,7 +465,7 @@ python3 -m app.main
 #### 预期输出
 
 ```
-2026-04-17 16:00:00 INFO go2-env-agent: started: device=go2_01 source=go2_slam interval=5s points=5
+2026-04-17 16:00:00 INFO go2-env-agent: started: device=Go2 source=go2_slam interval=5s points=5
 Go2PoseSDK: subscribed to rt/sportmodestate on eth0
 ```
 
@@ -665,7 +665,7 @@ print(f'Spool size: {s.count()}')
 
 # 3. 后端数据是否持续到达
 # 在后端执行：
-# SELECT COUNT(*) FROM telemetry_raw WHERE device_id='go2_01' AND ts >= NOW() - INTERVAL 24 HOUR;
+# SELECT COUNT(*) FROM telemetry_raw WHERE device_id='Go2' AND ts >= NOW() - INTERVAL 24 HOUR;
 ```
 
 #### 通过标准

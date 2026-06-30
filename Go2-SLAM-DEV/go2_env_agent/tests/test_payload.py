@@ -26,7 +26,7 @@ class TestTelemetryRecord:
     def test_full_record(self):
         pose = Pose(source="go2_slam", frame="map", fix=True, x=6.4, y=2.0, z=0.0, yaw=1.57)
         rec = TelemetryRecord(
-            device_id="go2_01",
+            device_id="Go2",
             ts=1776403200,
             temp_c=26,
             rh=61,
@@ -38,7 +38,7 @@ class TestTelemetryRecord:
             errors=[],
         )
         d = rec.to_dict()
-        assert d["device_id"] == "go2_01"
+        assert d["device_id"] == "Go2"
         assert d["zone_id"] == "A2"
         assert d["point_id"] == "A2"
         assert d["pose"]["source"] == "go2_slam"
@@ -49,7 +49,7 @@ class TestTelemetryRecord:
     def test_no_match_record(self):
         pose = Pose(source="go2_slam", frame="map", fix=True, x=99.0, y=99.0, z=0.0, yaw=0.0)
         rec = TelemetryRecord(
-            device_id="go2_01",
+            device_id="Go2",
             ts=1776403200,
             temp_c=None,
             rh=None,
@@ -68,7 +68,7 @@ class TestTelemetryRecord:
     def test_no_fix_record(self):
         pose = Pose(source="go2_slam", frame="map", fix=False, x=None, y=None, z=None, yaw=None, error="no_pose")
         rec = TelemetryRecord(
-            device_id="go2_01",
+            device_id="Go2",
             ts=1776403200,
             temp_c=25,
             rh=55,

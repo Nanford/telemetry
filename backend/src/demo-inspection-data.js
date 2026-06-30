@@ -7,6 +7,8 @@ const DEMO_POINTS = [
   { id: 'A5', x: 17.8, y: 1.9, temp_c: 24.4, rh: 62.0 }
 ];
 
+const DEFAULT_DEMO_DEVICE_ID = 'Go2';
+
 const buildDemoInspectionReadings = ({
   deviceId,
   startedAtMs = Date.now()
@@ -40,7 +42,7 @@ const buildDemoInspectionReadings = ({
 
 const parseDemoArgs = (argv) => {
   const result = {
-    deviceId: `go2-demo-${Date.now()}`,
+    deviceId: DEFAULT_DEMO_DEVICE_ID,
     intervalMs: 1000,
     dryRun: false
   };
@@ -68,6 +70,7 @@ const parseDemoArgs = (argv) => {
 };
 
 module.exports = {
+  DEFAULT_DEMO_DEVICE_ID,
   buildDemoInspectionReadings,
   parseDemoArgs
 };
