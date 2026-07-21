@@ -1,0 +1,1 @@
+python .\publish_go2_telemetry_sim.py --count 300

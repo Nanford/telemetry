@@ -1,0 +1,29 @@
+# =====================================================================
+# 本文件由 tools/gen_points.py 自动生成 —— 请勿手工编辑, 改动改 ROOMS 后重跑。
+# INPUT : Go2 SLAM 位姿(x,y), 由 point_matcher.py 按"最近点+半径"匹配
+# OUTPUT: 命中垛位 point_id / 归属房间 zone_id, 供采集终端归属温湿度上报
+# POS   : A-1-4 库房真实垛位采集点定义
+# 排布可信度: 低-图上读取待核对(18垛 01-18)
+# 坐标为示意值, 现场 SLAM 标定后按 id 替换真实 x/y(id 不变)。
+# =====================================================================
+
+area_id: A-1-4
+points:
+  - { id: A-1-4-01, zone_id: A-1-4, name: 垛位 A-1-4-01, x: 17.5, y: 4.8, radius: 0.7, patrol_seq: 6 }
+  - { id: A-1-4-02, zone_id: A-1-4, name: 垛位 A-1-4-02, x: 20.0, y: 4.8, radius: 0.7, patrol_seq: 5 }
+  - { id: A-1-4-03, zone_id: A-1-4, name: 垛位 A-1-4-03, x: 22.5, y: 4.8, radius: 0.7, patrol_seq: 4 }
+  - { id: A-1-4-04, zone_id: A-1-4, name: 垛位 A-1-4-04, x: 25.0, y: 4.8, radius: 0.7, patrol_seq: 3 }
+  - { id: A-1-4-05, zone_id: A-1-4, name: 垛位 A-1-4-05, x: 27.5, y: 4.8, radius: 0.7, patrol_seq: 2 }
+  - { id: A-1-4-06, zone_id: A-1-4, name: 垛位 A-1-4-06, x: 30.0, y: 4.8, radius: 0.7, patrol_seq: 1 }
+  - { id: A-1-4-07, zone_id: A-1-4, name: 垛位 A-1-4-07, x: 20.0, y: 3.2, radius: 0.7, patrol_seq: 18 }
+  - { id: A-1-4-08, zone_id: A-1-4, name: 垛位 A-1-4-08, x: 17.5, y: 3.2, radius: 0.7, patrol_seq: 17 }
+  - { id: A-1-4-09, zone_id: A-1-4, name: 垛位 A-1-4-09, x: 12.5, y: 3.2, radius: 0.7, patrol_seq: 16 }
+  - { id: A-1-4-10, zone_id: A-1-4, name: 垛位 A-1-4-10, x: 10.0, y: 3.2, radius: 0.7, patrol_seq: 15 }
+  - { id: A-1-4-11, zone_id: A-1-4, name: 垛位 A-1-4-11, x: 7.5, y: 3.2, radius: 0.7, patrol_seq: 14 }
+  - { id: A-1-4-12, zone_id: A-1-4, name: 垛位 A-1-4-12, x: 5.0, y: 3.2, radius: 0.7, patrol_seq: 13 }
+  - { id: A-1-4-13, zone_id: A-1-4, name: 垛位 A-1-4-13, x: 2.5, y: 3.2, radius: 0.7, patrol_seq: 12 }
+  - { id: A-1-4-14, zone_id: A-1-4, name: 垛位 A-1-4-14, x: 2.5, y: 4.8, radius: 0.7, patrol_seq: 11 }
+  - { id: A-1-4-15, zone_id: A-1-4, name: 垛位 A-1-4-15, x: 5.0, y: 4.8, radius: 0.7, patrol_seq: 10 }
+  - { id: A-1-4-16, zone_id: A-1-4, name: 垛位 A-1-4-16, x: 7.5, y: 4.8, radius: 0.7, patrol_seq: 9 }
+  - { id: A-1-4-17, zone_id: A-1-4, name: 垛位 A-1-4-17, x: 10.0, y: 4.8, radius: 0.7, patrol_seq: 8 }
+  - { id: A-1-4-18, zone_id: A-1-4, name: 垛位 A-1-4-18, x: 12.5, y: 4.8, radius: 0.7, patrol_seq: 7 }
