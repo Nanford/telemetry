@@ -213,6 +213,7 @@ const InspectionRouteMap = ({
             const reading = readingMap[point.id];
             const abnormal = Boolean(reading?.temp_abnormal || reading?.rh_abnormal);
             const active = activePointId === point.id;
+            const isTop = Number(point.y) >= aisleMid;
             const cardHeight = abnormal ? CARD.alertHeight : CARD.normalHeight;
             const cardX = clamp(
               nodeX - CARD.width / 2,
@@ -402,18 +403,31 @@ const InspectionRouteMap = ({
                   stroke="#ffffff"
                   strokeWidth="2.5"
                 />
-                {/* 紧凑读数：未悬停时贴在节点上方，避免 23 个卡片重叠 */}
+                {/* 紧凑读数：未悬停时贴在节点外侧（上排朝上、下排朝下），温/湿度分两行
+                    窄排显示，避免 23 列在水平方向堆叠、下排与走道侧标签相撞 */}
                 {reading && !active && (
-                  <text
-                    x={nodeX}
-                    y={nodeY - 15}
-                    textAnchor="middle"
-                    fill={statusColor}
-                    fontSize="12"
-                    fontWeight="700"
-                  >
-                    {formatMetric(reading.temp_c)}°/{formatMetric(reading.rh)}%
-                  </text>
+                  <>
+                    <text
+                      x={nodeX}
+                      y={isTop ? nodeY - 28 : nodeY + 50}
+                      textAnchor="middle"
+                      fill={statusColor}
+                      fontSize="12"
+                      fontWeight="700"
+                    >
+                      {formatMetric(reading.temp_c)}°
+                    </text>
+                    <text
+                      x={nodeX}
+                      y={isTop ? nodeY - 15 : nodeY + 63}
+                      textAnchor="middle"
+                      fill={statusColor}
+                      fontSize="12"
+                      fontWeight="700"
+                    >
+                      {formatMetric(reading.rh)}%
+                    </text>
+                  </>
                 )}
                 {/* 短编号(垛号)常显；悬停时补全区房号+名称 */}
                 <text
