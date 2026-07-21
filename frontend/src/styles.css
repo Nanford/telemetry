@@ -525,6 +525,22 @@ body::after {
   color: var(--muted);
 }
 
+/* 曲线卡片头部右侧：区域选择 + 时间范围等图表控件 */
+.chart-header-side {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .legend-dot {
   display: inline-block;
   width: 8px;

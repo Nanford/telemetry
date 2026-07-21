@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import {
   LineChart,
   Line,
@@ -34,16 +34,19 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-const TrendChart = ({ data, title, subtitle }) => (
+const TrendChart = ({ data, title, subtitle, actions }) => (
   <div className="card chart-card">
     <div className="card-header">
       <div>
         <div className="card-title">{title}</div>
         <div className="card-subtitle">{subtitle}</div>
       </div>
-      <div className="chart-legend">
-        <span><i className="legend-dot temp" /> 温度 (℃)</span>
-        <span><i className="legend-dot rh" /> 湿度 (%)</span>
+      <div className="chart-header-side">
+        {actions}
+        <div className="chart-legend">
+          <span><i className="legend-dot temp" /> 温度 (℃)</span>
+          <span><i className="legend-dot rh" /> 湿度 (%)</span>
+        </div>
       </div>
     </div>
     <div className="chart-body">

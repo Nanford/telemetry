@@ -62,44 +62,39 @@ const ZoneDetail = () => {
 
   return (
     <div className="page">
-      <div className="filter-bar">
-        <div className="filter-group">
-          <span className="filter-label">区域</span>
-          <select
-            className="select"
-            value={selectedZone}
-            onChange={(event) => setSelectedZone(event.target.value)}
-          >
-            {zones.map((zone) => (
-              <option key={zone.zone_id} value={zone.zone_id}>
-                {zone.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="filter-group">
-          <span className="filter-label">时间范围</span>
-          <div className="chip-row">
-            {ranges.map((item) => (
-              <button
-                key={item.label}
-                className={`chip ${item.label === range.label ? 'active' : ''}`}
-                onClick={() => setRange(item)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
       <WarehouseHeatmap />
 
       <div className="panel-grid">
         <TrendChart
           title="库区温湿度曲线"
-          subtitle={`${selectedZoneMeta ? selectedZoneMeta.description : '趋势详情'} · 30 分钟聚合`}
+          subtitle={`${selectedZoneMeta?.description || '趋势详情'} · 30 分钟聚合`}
           data={trend}
+          actions={(
+            <div className="chart-controls">
+              <select
+                className="select"
+                value={selectedZone}
+                onChange={(event) => setSelectedZone(event.target.value)}
+              >
+                {zones.map((zone) => (
+                  <option key={zone.zone_id} value={zone.zone_id}>
+                    {zone.name}
+                  </option>
+                ))}
+              </select>
+              <div className="chip-row">
+                {ranges.map((item) => (
+                  <button
+                    key={item.label}
+                    className={`chip ${item.label === range.label ? 'active' : ''}`}
+                    onClick={() => setRange(item)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         />
 
         <div className="card sensor-card">
