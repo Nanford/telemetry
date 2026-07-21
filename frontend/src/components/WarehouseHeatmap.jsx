@@ -16,6 +16,11 @@ const BAY_W = 1.28;
 const BAY_D = 3.2;
 const BAY_OFF = 0.25;
 
+// 实时新鲜度窗口：最新读数若超过此时长，即视为“非实时”，不再渲染成当前热力场。
+// 目的——避免历史/演示批次（如 Go2-SIM 灌入的模拟读数）被当成实时数据展示。
+// 取 30 分钟与巡检批次分段间隔（gapMinutes=30）对齐；现场巡检频率不同可调此值。
+const FRESH_WINDOW_MS = 30 * 60 * 1000;
+
 // 蓝→青→绿→黄→橙→红热力色带
 const PALETTE = [
   [0, '#2563eb'],
@@ -121,17 +126,22 @@ const WarehouseHeatmap = () => {
     return map;
   }, [readings]);
 
-  // 参与插值的采样点：有平面坐标且最新读数有效
-  const samples = useMemo(() => (
-    points
+  // 参与插值的采样点：有平面坐标、读数有效、且落在新鲜度窗口内。
+  // 过期读数（含昨天的演示批次）一律丢弃，不进热力场——保证画面只呈现实时数据。
+  const samples = useMemo(() => {
+    const freshBefore = Date.now() - FRESH_WINDOW_MS;
+    return points
       .map((pt) => {
         const rd = readingMap[pt.id];
-        const v = rd ? num(rd[modeMeta.key]) : null;
+        if (!rd) return null;
+        const tsMs = new Date(rd.ts).getTime();
+        if (!Number.isFinite(tsMs) || tsMs < freshBefore) return null; // 过期读数：不参与
+        const v = num(rd[modeMeta.key]);
         if (v === null) return null;
         return { id: pt.id, name: pt.name, x: Number(pt.x) || 0, y: Number(pt.y) || 0, v };
       })
-      .filter(Boolean)
-  ), [points, readingMap, modeMeta]);
+      .filter(Boolean);
+  }, [points, readingMap, modeMeta]);
 
   // 色带域值跟随当前读数范围，保证仓内微小差异也能分辨
   const domain = useMemo(() => {
@@ -239,6 +249,9 @@ const WarehouseHeatmap = () => {
     const t = new Date(r.ts).getTime();
     return Number.isFinite(t) && t > latest ? t : latest;
   }, 0);
+  // 有读数、但最新一条已超出新鲜度窗口 ⇒ 判定“非实时”（用于诚实提示，不渲染热力场）
+  const isStale = latestTs > 0 && Date.now() - latestTs > FRESH_WINDOW_MS;
+  const latestAge = latestTs ? formatAge(new Date(latestTs).toISOString()) : '--';
 
   const formatValue = (v) => `${v.toFixed(1)}${modeMeta.unit}`;
 
@@ -248,7 +261,12 @@ const WarehouseHeatmap = () => {
         <div>
           <div className="card-title">仓间{modeMeta.metric}平面分析</div>
           <div className="card-subtitle">
-            {area.name} · 基于 {samples.length} 个巡检点位的空间插值分析
+            {area.name} · 基于 {samples.length} 个实时巡检点位的空间插值分析
+            {isStale && (
+              <span className="heatmap-bad" style={{ marginLeft: 8 }}>
+                ⚠ 当前无实时数据，最近读数 {latestAge}（可能为演示/历史数据）
+              </span>
+            )}
           </div>
         </div>
         <div className="heatmap-toolbar">
@@ -374,7 +392,11 @@ const WarehouseHeatmap = () => {
 
           {!heatmapUrl && (
             <text x={PADDING + w / 2} y={PADDING + h / 2} textAnchor="middle" fontSize={0.5}
-              fill="rgba(205,231,255,0.7)">暂无足够巡检读数，等待机器狗进仓采集后生成热力场</text>
+              fill="rgba(205,231,255,0.7)">
+              {isStale
+                ? `暂无实时巡检读数，最近一次 ${latestAge}（可能为演示/历史数据）`
+                : '暂无巡检读数，等待机器狗进仓采集后生成热力场'}
+            </text>
           )}
         </svg>
       </div>
