@@ -10,6 +10,9 @@ const POLL_MS = 5000;
 const PADDING = 1.5;
 const TRAIL_WINDOW_MS = 60 * 60 * 1000;
 const TRAIL_LIMIT = 2000;
+// 告警阈值(与采集端/仿真一致)：超过则该垛位读数标红、垛位描红框。
+const TEMP_LIMIT = 32;
+const RH_LIMIT = 65;
 
 function formatAge(ts) {
   if (!ts) return '--';
@@ -160,6 +163,40 @@ const SlamMapTab = () => {
 
   const num = (v) => Number(v) || 0;
 
+  // 垛位矩形：采集点在走道侧，矩形向远离走道方向延伸（贴近平面图成对短垛）。
+  // 走道中线 = 上下两排采集点 y 的中点。
+  const ptYs = points.map((p) => num(p.y));
+  const aisleMin = ptYs.length ? Math.min(...ptYs) : 0;
+  const aisleMax = ptYs.length ? Math.max(...ptYs) : 0;
+  const aisleMid = (aisleMin + aisleMax) / 2;
+  // 成对短矩形：宽约列距 1.5m 的 85%，进深 3.2m（不再用 7m 超高条）
+  const BAY_W = 1.28;
+  const BAY_D = 3.2;
+  const BAY_OFF = 0.25;
+
+  // 平面图成对分组：北排 (07,08)…；南排 (06,05)… 与 (23,22)…；(19) 单独
+  const PAIR_IDS = [
+    ['A-1-2-07', 'A-1-2-08'], ['A-1-2-09', 'A-1-2-10'], ['A-1-2-11', 'A-1-2-12'],
+    ['A-1-2-13', 'A-1-2-14'], ['A-1-2-15', 'A-1-2-16'], ['A-1-2-17', 'A-1-2-18'],
+    ['A-1-2-06', 'A-1-2-05'], ['A-1-2-04', 'A-1-2-03'], ['A-1-2-02', 'A-1-2-01'],
+    ['A-1-2-23', 'A-1-2-22'], ['A-1-2-21', 'A-1-2-20']
+  ];
+  const pointById = Object.fromEntries(points.map((p) => [p.id, p]));
+  const bayGeom = (pt) => {
+    const isTop = num(pt.y) >= aisleMid;
+    const bayX = fx(pt.x) - BAY_W / 2;
+    const bayY = isTop ? fy(num(pt.y) + BAY_OFF + BAY_D) : fy(num(pt.y) - BAY_OFF);
+    const labelY = fy(isTop ? num(pt.y) + BAY_OFF + BAY_D / 2 : num(pt.y) - BAY_OFF - BAY_D / 2);
+    return { isTop, bayX, bayY, labelY };
+  };
+
+  // 走道只画在垛位 x 范围，避免整房横向通栏空白感
+  const ptXs = points.map((p) => num(p.x));
+  const baySpanMinX = ptXs.length ? Math.min(...ptXs) - BAY_W / 2 - 0.3 : bounds.minX;
+  const baySpanMaxX = ptXs.length ? Math.max(...ptXs) + BAY_W / 2 + 0.3 : bounds.maxX;
+  const aisleX = fx(baySpanMinX);
+  const aisleW = Math.max(baySpanMaxX - baySpanMinX, 1);
+
   const trailStr = trail.map((t) => `${fx(num(t.pos_x))},${fy(num(t.pos_y))}`).join(' ');
 
   return (
@@ -178,12 +215,12 @@ const SlamMapTab = () => {
       {error && <div className="page-error">{error}</div>}
 
       <div className="map-body">
-        {/* SVG floor plan */}
+        {/* SVG floor plan — A-1-2 单间，上下成对垛位 + 中央走道 */}
         <div className="slam-floor">
           <svg viewBox={`0 0 ${vbW} ${vbH}`} preserveAspectRatio="xMidYMid meet">
-            {/* warehouse boundary */}
-            <rect x={PADDING} y={PADDING} width={w} height={h} rx={0.15}
-              fill="rgba(9,32,72,0.85)" stroke="rgba(101,200,255,0.35)" strokeWidth={0.06} />
+            {/* room boundary */}
+            <rect x={PADDING} y={PADDING} width={w} height={h} rx={0.12}
+              fill="rgba(9,32,72,0.9)" stroke="rgba(101,200,255,0.4)" strokeWidth={0.07} />
 
             {/* grid lines */}
             {Array.from({ length: Math.floor(w / gridStep) + 1 }, (_, i) => (
@@ -197,32 +234,96 @@ const SlamMapTab = () => {
 
             {/* axis labels */}
             {Array.from({ length: Math.floor(w / axisStep) + 1 }, (_, i) => (
-              <text key={`lx${i}`} x={PADDING + i * axisStep} y={PADDING + h + 0.6}
-                textAnchor="middle" fontSize={0.4} fill="rgba(205,231,255,0.5)">
+              <text key={`lx${i}`} x={PADDING + i * axisStep} y={PADDING + h + 0.55}
+                textAnchor="middle" fontSize={0.38} fill="rgba(205,231,255,0.5)">
                 {formatMetric(bounds.minX + i * axisStep, 0)}m
               </text>
             ))}
 
-            {/* checkpoint zones */}
+            {/* central aisle band between the two rack rows */}
+            {aisleMax > aisleMin && (
+              <rect x={aisleX} y={fy(aisleMax)} width={aisleW} height={aisleMax - aisleMin}
+                fill="rgba(101,200,255,0.07)" stroke="rgba(101,200,255,0.16)" strokeWidth={0.03} rx={0.08} />
+            )}
+            {aisleMax > aisleMin && (
+              <text x={aisleX + aisleW / 2} y={fy(aisleMid) + 0.12} textAnchor="middle"
+                fontSize={0.42} fill="rgba(101,200,255,0.45)">中 央 走 道</text>
+            )}
+
+            {/* 门：右短边进仓侧 */}
+            <g>
+              <rect x={PADDING + w - 0.08} y={fy(aisleMid) - 0.9} width={0.4} height={1.8} rx={0.08}
+                fill="rgba(47,125,255,0.2)" stroke="#65c8ff" strokeWidth={0.05} />
+              <text x={PADDING + w + 0.18} y={fy(aisleMid) - 1.1} textAnchor="middle"
+                fontSize={0.38} fill="#8fd4ff">门</text>
+            </g>
+
+            {/* pair frames — 成对外框，贴近平面图双列垛 */}
+            {PAIR_IDS.map((pair) => {
+              const members = pair.map((id) => pointById[id]).filter(Boolean);
+              if (members.length < 2) return null;
+              const xs = members.map((p) => num(p.x));
+              const isTop = num(members[0].y) >= aisleMid;
+              const minX = Math.min(...xs) - BAY_W / 2 - 0.08;
+              const maxX = Math.max(...xs) + BAY_W / 2 + 0.08;
+              const outerY = isTop
+                ? fy(num(members[0].y) + BAY_OFF + BAY_D + 0.08)
+                : fy(num(members[0].y) - BAY_OFF + 0.08);
+              return (
+                <rect key={`pair-${pair.join('_')}`}
+                  x={fx(minX)} y={outerY}
+                  width={maxX - minX} height={BAY_D + 0.16} rx={0.1}
+                  fill="none" stroke="rgba(217,189,147,0.22)" strokeWidth={0.04} />
+              );
+            })}
+
+            {/* bay stacks — 成对短矩形；编号 A-1 / 2-07；告警红框 */}
+            {points.map((pt) => {
+              const { bayX, bayY, labelY } = bayGeom(pt);
+              const rd = readingMap[pt.id];
+              const abn = rd && (num(rd.temp_c) > TEMP_LIMIT || num(rd.rh) > RH_LIMIT);
+              const seg = String(pt.id).split('-'); // A-1-2-07 -> [A,1,2,07]
+              const line1 = seg.length >= 4 ? `${seg[0]}-${seg[1]}` : pt.id;
+              const line2 = seg.length >= 4 ? `${seg[2]}-${seg[3]}` : '';
+              return (
+                <g key={`bay-${pt.id}`}>
+                  <rect x={bayX} y={bayY} width={BAY_W} height={BAY_D} rx={0.08}
+                    fill={abn ? 'rgba(248,113,113,0.16)' : 'rgba(217,189,147,0.22)'}
+                    stroke={abn ? 'rgba(248,113,113,0.9)' : 'rgba(217,189,147,0.65)'}
+                    strokeWidth={abn ? 0.09 : 0.045} />
+                  {/* 货架层线，接近平面图格纹 */}
+                  {[0.25, 0.5, 0.75].map((t) => (
+                    <line key={`sl-${pt.id}-${t}`}
+                      x1={bayX + 0.08} x2={bayX + BAY_W - 0.08}
+                      y1={bayY + BAY_D * t} y2={bayY + BAY_D * t}
+                      stroke="rgba(217,189,147,0.18)" strokeWidth={0.025} />
+                  ))}
+                  <text x={fx(pt.x)} y={labelY - 0.18} textAnchor="middle"
+                    fontSize={0.42} fontWeight="700" fill="rgba(235,214,176,0.95)">
+                    {line1}
+                  </text>
+                  {line2 && (
+                    <text x={fx(pt.x)} y={labelY + 0.36} textAnchor="middle"
+                      fontSize={0.42} fontWeight="700" fill="rgba(235,214,176,0.95)">
+                      {line2}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* checkpoint dwell dots + live readings */}
             {points.map((pt) => {
               const rd = readingMap[pt.id];
+              const abn = rd && (num(rd.temp_c) > TEMP_LIMIT || num(rd.rh) > RH_LIMIT);
               return (
                 <g key={pt.id}>
-                  <circle cx={fx(pt.x)} cy={fy(pt.y)} r={pt.radius}
-                    fill="rgba(47,125,255,0.12)" stroke="rgba(47,125,255,0.5)" strokeWidth={0.05}
-                    strokeDasharray="0.15 0.08" />
-                  <text x={fx(pt.x)} y={fy(pt.y) - pt.radius - 0.25}
-                    textAnchor="middle" fontSize={0.38} fontWeight="600" fill="#65c8ff">
-                    {pt.id}
-                  </text>
-                  <text x={fx(pt.x)} y={fy(pt.y) + 0.05}
-                    textAnchor="middle" fontSize={0.28} fill="rgba(205,231,255,0.7)">
-                    {pt.name}
-                  </text>
+                  <circle cx={fx(pt.x)} cy={fy(pt.y)} r={0.22}
+                    fill="rgba(47,125,255,0.32)" stroke="#65c8ff" strokeWidth={0.045} />
                   {rd && (
-                    <text x={fx(pt.x)} y={fy(pt.y) + 0.45}
-                      textAnchor="middle" fontSize={0.3} fill="#4ade80">
-                      {rd.temp_c}° / {rd.rh}%
+                    <text x={fx(pt.x)} y={fy(pt.y) - 0.38}
+                      textAnchor="middle" fontSize={0.3} fontWeight="600" fill={abn ? '#f87171' : '#4ade80'}>
+                      {rd.temp_c}°/{rd.rh}%
                     </text>
                   )}
                 </g>

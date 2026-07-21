@@ -39,7 +39,18 @@ const InspectionRouteMap = ({
     ((Number(value) - bounds.minY) / coordinateHeight) *
       (plotBottom - PLOT.top);
 
-  const routePoints = points
+  // 预设路线按“蛇形”排序连线：上排西→东、下排东→西，避免按数组顺序连出斜穿全图的杂线。
+  const routeYs = points.map((point) => Number(point.y));
+  const aisleMid = routeYs.length
+    ? (Math.min(...routeYs) + Math.max(...routeYs)) / 2
+    : 0;
+  const orderedRoute = [...points].sort((a, b) => {
+    const aTop = Number(a.y) >= aisleMid;
+    const bTop = Number(b.y) >= aisleMid;
+    if (aTop !== bTop) return aTop ? -1 : 1;           // 上排在前
+    return aTop ? Number(a.x) - Number(b.x) : Number(b.x) - Number(a.x);
+  });
+  const routePoints = orderedRoute
     .map((point) => `${projectX(point.x)},${projectY(point.y)}`)
     .join(' ');
   const trailPoints = actualTrail
@@ -236,7 +247,7 @@ const InspectionRouteMap = ({
                     : '暂无读数'
                 }`}
               >
-                {reading && (
+                {reading && active && (
                   <>
                     <polyline
                       points={`${connectorX},${cardY + cardHeight} ${connectorX},${nodeY - 29} ${nodeX},${nodeY - 15}`}
@@ -391,25 +402,41 @@ const InspectionRouteMap = ({
                   stroke="#ffffff"
                   strokeWidth="2.5"
                 />
+                {/* 紧凑读数：未悬停时贴在节点上方，避免 23 个卡片重叠 */}
+                {reading && !active && (
+                  <text
+                    x={nodeX}
+                    y={nodeY - 15}
+                    textAnchor="middle"
+                    fill={statusColor}
+                    fontSize="12"
+                    fontWeight="700"
+                  >
+                    {formatMetric(reading.temp_c)}°/{formatMetric(reading.rh)}%
+                  </text>
+                )}
+                {/* 短编号(垛号)常显；悬停时补全区房号+名称 */}
                 <text
                   x={nodeX}
-                  y={nodeY + 38}
+                  y={nodeY + 32}
                   textAnchor="middle"
                   fill="#ffffff"
-                  fontSize="16"
+                  fontSize="13"
                   fontWeight="700"
                 >
-                  {point.id}
+                  {String(point.id).split('-').pop()}
                 </text>
-                <text
-                  x={nodeX}
-                  y={nodeY + 57}
-                  textAnchor="middle"
-                  fill="rgba(205,231,255,0.72)"
-                  fontSize="11"
-                >
-                  {point.name || '巡检点位'}
-                </text>
+                {active && (
+                  <text
+                    x={nodeX}
+                    y={nodeY + 48}
+                    textAnchor="middle"
+                    fill="rgba(205,231,255,0.72)"
+                    fontSize="11"
+                  >
+                    {point.id}{point.name ? ` · ${point.name}` : ''}
+                  </text>
+                )}
               </g>
             );
           })}

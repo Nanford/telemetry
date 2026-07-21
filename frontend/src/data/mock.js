@@ -1,8 +1,8 @@
-﻿const now = new Date();
+const now = new Date();
 
-const makeSeries = (count, baseTemp = 18, baseRh = 45) =>
+const makeSeries = (count, baseTemp = 18, baseRh = 45, stepMs = 60 * 60 * 1000) =>
   Array.from({ length: count }, (_, idx) => {
-    const t = new Date(now.getTime() - (count - 1 - idx) * 60 * 60 * 1000);
+    const t = new Date(now.getTime() - (count - 1 - idx) * stepMs);
     const wave = Math.sin(idx / 3) * 1.2;
     return {
       ts: t.toISOString(),
@@ -88,8 +88,8 @@ export const mockHealth = {
 };
 
 export const mockTrend = {
-  granularity: 'raw',
-  series: makeSeries(36)
+  granularity: '30min',
+  series: makeSeries(48, 18, 45, 30 * 60 * 1000)
 };
 
 export const mockAlerts = [
@@ -256,26 +256,29 @@ export const mockSensors = [
 
 export const mockHourlySeries = makeHourly();
 
+// 与 backend config A-1-2 布局一致：上排 y=7、下排 y=5、中央走道、门在右
 export const mockSlamPoints = {
-  area: { area_id: 'warehouse_1f', name: '一楼仓库', width: 20, height: 6 },
+  area: { area_id: 'A-1-2', name: 'A-1-2 库房', width: 20, height: 12 },
   points: [
-    { id: 'A1', name: '原料接收区', x: 2.1, y: 1.8, radius: 0.8 },
-    { id: 'A2', name: '初加工区', x: 6.4, y: 2.0, radius: 0.8 },
-    { id: 'A3', name: '醇化仓库', x: 10.2, y: 2.1, radius: 0.8 },
-    { id: 'A4', name: '成品仓库', x: 14.0, y: 2.0, radius: 0.8 },
-    { id: 'A5', name: '装卸调度区', x: 17.8, y: 1.9, radius: 0.8 }
-  ]
+    ['A-1-2-07', 1.5, 7.0], ['A-1-2-08', 3.0, 7.0], ['A-1-2-09', 4.5, 7.0], ['A-1-2-10', 6.0, 7.0],
+    ['A-1-2-11', 7.5, 7.0], ['A-1-2-12', 9.0, 7.0], ['A-1-2-13', 10.5, 7.0], ['A-1-2-14', 12.0, 7.0],
+    ['A-1-2-15', 13.5, 7.0], ['A-1-2-16', 15.0, 7.0], ['A-1-2-17', 16.5, 7.0], ['A-1-2-18', 18.0, 7.0],
+    ['A-1-2-06', 1.5, 5.0], ['A-1-2-05', 3.0, 5.0], ['A-1-2-04', 4.5, 5.0], ['A-1-2-03', 6.0, 5.0],
+    ['A-1-2-02', 7.5, 5.0], ['A-1-2-01', 9.0, 5.0],
+    ['A-1-2-23', 12.0, 5.0], ['A-1-2-22', 13.5, 5.0], ['A-1-2-21', 15.0, 5.0], ['A-1-2-20', 16.5, 5.0],
+    ['A-1-2-19', 18.0, 5.0]
+  ].map(([id, x, y]) => ({ id, name: `垛${id.slice(-2)}`, x, y, radius: 0.6 }))
 };
 
 export const mockSlamLatest = [
   {
     device_id: 'go2_01',
-    pos_x: 10.21,
-    pos_y: 2.09,
+    pos_x: 10.5,
+    pos_y: 6.0,
     pos_z: 0.32,
     yaw: 0.03,
-    point_id: 'A3',
-    area_id: 'warehouse_1f',
+    point_id: 'A-1-2-13',
+    area_id: 'A-1-2',
     temp_c: 25,
     rh: 57,
     ts: now.toISOString()
@@ -283,10 +286,10 @@ export const mockSlamLatest = [
 ];
 
 const trailPath = [
-  [2.1, 1.8], [3.5, 1.85], [4.9, 1.9], [6.4, 2.0], [7.8, 2.0],
-  [9.2, 2.05], [10.2, 2.1], [11.5, 2.05], [12.8, 2.0], [14.0, 2.0],
-  [15.3, 1.95], [16.5, 1.92], [17.8, 1.9], [16.5, 1.92], [15.0, 1.95],
-  [14.0, 2.0], [12.5, 2.0], [11.0, 2.05], [10.2, 2.09]
+  [1.5, 6.0], [3.0, 6.0], [4.5, 6.0], [6.0, 6.0], [7.5, 6.0],
+  [9.0, 6.0], [10.5, 6.0], [12.0, 6.0], [13.5, 6.0], [15.0, 6.0],
+  [16.5, 6.0], [18.0, 6.0], [16.5, 5.5], [15.0, 5.2], [13.5, 5.0],
+  [12.0, 5.0], [10.5, 5.5], [9.0, 6.0]
 ];
 
 export const mockSlamTrail = trailPath.map(([x, y], i) => ({
@@ -297,9 +300,8 @@ export const mockSlamTrail = trailPath.map(([x, y], i) => ({
 }));
 
 export const mockSlamReadings = [
-  { point_id: 'A1', temp_c: 24.8, rh: 58, ts: new Date(now.getTime() - 5 * 60000).toISOString(), device_id: 'go2_01' },
-  { point_id: 'A2', temp_c: 25.0, rh: 57, ts: new Date(now.getTime() - 4 * 60000).toISOString(), device_id: 'go2_01' },
-  { point_id: 'A3', temp_c: 24.9, rh: 58, ts: new Date(now.getTime() - 3 * 60000).toISOString(), device_id: 'go2_01' },
-  { point_id: 'A4', temp_c: 24.8, rh: 58, ts: new Date(now.getTime() - 2 * 60000).toISOString(), device_id: 'go2_01' },
-  { point_id: 'A5', temp_c: 25.1, rh: 56, ts: new Date(now.getTime() - 60000).toISOString(), device_id: 'go2_01' }
+  { point_id: 'A-1-2-07', temp_c: 24.8, rh: 58, ts: new Date(now.getTime() - 5 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A-1-2-13', temp_c: 25.0, rh: 57, ts: new Date(now.getTime() - 3 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A-1-2-01', temp_c: 24.9, rh: 58, ts: new Date(now.getTime() - 2 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A-1-2-19', temp_c: 25.1, rh: 56, ts: new Date(now.getTime() - 60000).toISOString(), device_id: 'go2_01' }
 ];

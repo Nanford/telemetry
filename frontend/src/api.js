@@ -9,7 +9,9 @@ import {
   mockZones,
   mockSensors,
   mockInsights,
-  mockHealth
+  mockHealth,
+  mockSlamPoints,
+  mockSlamReadings
 } from './data/mock.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api/v1';
@@ -163,7 +165,10 @@ export const getHealthSummary = withMockFallback(
   mockHealth
 );
 
-export const getSlamPoints = (_, opts) => fetchJson('slam/points', opts);
+export const getSlamPoints = withMockFallback(
+  (_, opts) => fetchJson('slam/points', opts),
+  mockSlamPoints
+);
 
 export const getSlamLatest = (_, opts) => fetchJson('slam/latest', opts);
 
@@ -174,7 +179,10 @@ export const getSlamTrail = (params = {}, opts) => {
   return fetchJson(`slam/trail${query ? `?${query}` : ''}`, opts);
 };
 
-export const getSlamReadings = (_, opts) => fetchJson('slam/readings', opts);
+export const getSlamReadings = withMockFallback(
+  (_, opts) => fetchJson('slam/readings', opts),
+  mockSlamReadings
+);
 
 export const createSlamStream = () => new EventSource(apiUrl('slam/stream'));
 

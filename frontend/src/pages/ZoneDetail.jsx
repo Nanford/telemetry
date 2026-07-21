@@ -1,9 +1,10 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import TrendChart from '../components/TrendChart.jsx';
+import WarehouseHeatmap from '../components/WarehouseHeatmap.jsx';
 import { getZones, getTrend, getSensors } from '../api.js';
 
 const ranges = [
-  { label: '1 小时', hours: 1 },
+  { label: '12 小时', hours: 12 },
   { label: '24 小时', hours: 24 },
   { label: '7 天', hours: 24 * 7 }
 ];
@@ -37,7 +38,7 @@ const ZoneDetail = () => {
         zone_id: selectedZone,
         start: start.toISOString(),
         end: end.toISOString(),
-        granularity: range.hours > 24 * 3 ? 'hourly' : 'raw'
+        bucket_minutes: 30
       });
       const toNumber = (value) => {
         if (value === null || value === undefined || value === '') return null;
@@ -92,10 +93,12 @@ const ZoneDetail = () => {
         </div>
       </div>
 
+      <WarehouseHeatmap />
+
       <div className="panel-grid">
         <TrendChart
           title="库区温湿度曲线"
-          subtitle={selectedZoneMeta ? selectedZoneMeta.description : '趋势详情'}
+          subtitle={`${selectedZoneMeta ? selectedZoneMeta.description : '趋势详情'} · 30 分钟聚合`}
           data={trend}
         />
 
