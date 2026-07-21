@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const config = require('./config');
 const { pool, query } = require('./db');
@@ -335,10 +335,49 @@ app.get('/api/v1/telemetry/trend', async (req, res) => {
     const start = parseTime(req.query.start, new Date(now.getTime() - 24 * 3600 * 1000));
     const end = parseTime(req.query.end, now);
     const granularity = req.query.granularity || 'auto';
+    const bucketMinutes = Number(req.query.bucket_minutes || 0);
 
     const diffMs = end.getTime() - start.getTime();
     const diffDays = diffMs / (1000 * 3600 * 24);
     const useHourly = granularity === 'hourly' || (granularity === 'auto' && diffDays > 7);
+
+    if (Number.isFinite(bucketMinutes) && bucketMinutes >= 1) {
+      // 固定分钟桶聚合（如 30 分钟一个点），直接在原始表上分组
+      const bucketSeconds = Math.min(Math.floor(bucketMinutes) * 60, 86400);
+      const [bucketRows] = await query(
+        `
+          SELECT
+            bucket_ts AS ts,
+            AVG(temp_c) AS temp_avg,
+            MIN(temp_c) AS temp_min,
+            MAX(temp_c) AS temp_max,
+            AVG(rh) AS rh_avg,
+            MIN(rh) AS rh_min,
+            MAX(rh) AS rh_max
+          FROM (
+            SELECT
+              FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(ts) / ?) * ?) AS bucket_ts,
+              temp_c,
+              rh
+            FROM telemetry_raw
+            WHERE ${zoneId ? 'zone_id = ?' : 'sensor_id = ?'}
+              AND ts BETWEEN ? AND ?
+              AND (temp_c IS NOT NULL OR rh IS NOT NULL)
+          ) bucketed
+          GROUP BY bucket_ts
+          ORDER BY bucket_ts ASC
+        `,
+        [
+          bucketSeconds,
+          bucketSeconds,
+          zoneId || sensorId,
+          toMysqlDatetime(start),
+          toMysqlDatetime(end)
+        ]
+      );
+
+      return ok(res, { granularity: `${Math.floor(bucketMinutes)}min`, series: bucketRows });
+    }
 
     if (useHourly) {
       const [rows] = await query(
@@ -371,7 +410,7 @@ app.get('/api/v1/telemetry/trend', async (req, res) => {
           WHERE ${zoneId ? 'zone_id = ?' : 'sensor_id = ?'}
             AND ts BETWEEN ? AND ?
             AND (temp_c IS NOT NULL OR rh IS NOT NULL)
-          GROUP BY DATE_FORMAT(ts, '%Y-%m-%d %H')
+          GROUP BY DATE_FORMAT(ts, '%Y-%m-%d %H:00:00')
           ORDER BY ts ASC
         `,
         [zoneId || sensorId, toMysqlDatetime(start), toMysqlDatetime(end)]
