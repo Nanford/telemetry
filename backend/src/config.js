@@ -27,8 +27,9 @@ const config = {
     clientId: process.env.MQTT_CLIENT_ID || `telemetry-api-${Math.random().toString(16).slice(2)}`
   },
   slam: {
-    // 只做平面图左上角 A-1-2 一间房（非整层）。
-    area: { ...buildSlamArea(process.env), area_id: 'A-1-2', name: 'A-1-2 库房' },
+    // 只做平面图左上角 A-1-2 一间房（非整层）。默认 20m × 12m，env 可覆盖；
+    // 缺宽高的部署会让前端退化为按点位推导边界，垛位矩形会被画布裁掉。
+    area: { width: 20, height: 12, ...buildSlamArea(process.env), area_id: 'A-1-2', name: 'A-1-2 库房' },
     // A-1-2 库房 23 垛位采集点，驱动室内定位平面图(SlamMapTab)。
     // 坐标为布局占位：原点在左下角，+x 沿走道朝门(右短边)，+y 朝北墙。
     // 上排(北) 07→18 成对；下排(南) 06→01 —缺口— 23→19 成对；两排夹中央走道。

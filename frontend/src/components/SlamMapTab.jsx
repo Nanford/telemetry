@@ -13,6 +13,10 @@ const TRAIL_LIMIT = 2000;
 // 告警阈值(与采集端/仿真一致)：超过则该垛位读数标红、垛位描红框。
 const TEMP_LIMIT = 32;
 const RH_LIMIT = 65;
+// 垛位矩形几何：采集点在走道侧，矩形向远离走道方向延伸（贴近平面图成对短垛）。
+const BAY_W = 1.28; // 宽约列距 1.5m 的 85%
+const BAY_D = 3.2;  // 进深
+const BAY_OFF = 0.25;
 
 function formatAge(ts) {
   if (!ts) return '--';
@@ -144,7 +148,27 @@ const SlamMapTab = () => {
   if (!mapLayout.bounds) {
     return <div className="card" style={{ padding: 24 }}>暂无可用于绘图的坐标数据</div>;
   }
-  const { bounds } = mapLayout;
+
+  const num = (v) => Number(v) || 0;
+
+  // 垛位与走道几何（上下两排短垛 + 中央走道）；走道中线 = 上下两排采集点 y 的中点。
+  const ptYs = points.map((p) => num(p.y));
+  const aisleMin = ptYs.length ? Math.min(...ptYs) : 0;
+  const aisleMax = ptYs.length ? Math.max(...ptYs) : 0;
+  const aisleMid = (aisleMin + aisleMax) / 2;
+  const ptXs = points.map((p) => num(p.x));
+
+  // 边界兜底：楼层未配置宽高时 bounds 由点位/轨迹推导，上下只剩走道一条窄带，
+  // 必须把垛位进深与标签空间一并纳入，否则两排垛位会被画布边缘裁掉。
+  const base = mapLayout.bounds;
+  const bounds = ptXs.length
+    ? {
+        minX: Math.min(base.minX, Math.min(...ptXs) - BAY_W / 2 - 0.5),
+        maxX: Math.max(base.maxX, Math.max(...ptXs) + BAY_W / 2 + 0.5),
+        minY: Math.min(base.minY, aisleMin - BAY_OFF - BAY_D - 0.9),
+        maxY: Math.max(base.maxY, aisleMax + BAY_OFF + BAY_D + 0.9)
+      }
+    : base;
   const w = bounds.maxX - bounds.minX;
   const h = bounds.maxY - bounds.minY;
   const vbW = w + PADDING * 2;
@@ -160,19 +184,6 @@ const SlamMapTab = () => {
 
   const readingMap = {};
   readings.forEach((r) => { readingMap[r.point_id] = r; });
-
-  const num = (v) => Number(v) || 0;
-
-  // 垛位矩形：采集点在走道侧，矩形向远离走道方向延伸（贴近平面图成对短垛）。
-  // 走道中线 = 上下两排采集点 y 的中点。
-  const ptYs = points.map((p) => num(p.y));
-  const aisleMin = ptYs.length ? Math.min(...ptYs) : 0;
-  const aisleMax = ptYs.length ? Math.max(...ptYs) : 0;
-  const aisleMid = (aisleMin + aisleMax) / 2;
-  // 成对短矩形：宽约列距 1.5m 的 85%，进深 3.2m（不再用 7m 超高条）
-  const BAY_W = 1.28;
-  const BAY_D = 3.2;
-  const BAY_OFF = 0.25;
 
   // 平面图成对分组：北排 (07,08)…；南排 (06,05)… 与 (23,22)…；(19) 单独
   const PAIR_IDS = [
@@ -191,7 +202,6 @@ const SlamMapTab = () => {
   };
 
   // 走道只画在垛位 x 范围，避免整房横向通栏空白感
-  const ptXs = points.map((p) => num(p.x));
   const baySpanMinX = ptXs.length ? Math.min(...ptXs) - BAY_W / 2 - 0.3 : bounds.minX;
   const baySpanMaxX = ptXs.length ? Math.max(...ptXs) + BAY_W / 2 + 0.3 : bounds.maxX;
   const aisleX = fx(baySpanMinX);
@@ -277,14 +287,11 @@ const SlamMapTab = () => {
               );
             })}
 
-            {/* bay stacks — 成对短矩形；编号 A-1 / 2-07；告警红框 */}
+            {/* bay stacks — 成对短矩形；单行编号标签；告警红框 */}
             {points.map((pt) => {
               const { bayX, bayY, labelY } = bayGeom(pt);
               const rd = readingMap[pt.id];
               const abn = rd && (num(rd.temp_c) > TEMP_LIMIT || num(rd.rh) > RH_LIMIT);
-              const seg = String(pt.id).split('-'); // A-1-2-07 -> [A,1,2,07]
-              const line1 = seg.length >= 4 ? `${seg[0]}-${seg[1]}` : pt.id;
-              const line2 = seg.length >= 4 ? `${seg[2]}-${seg[3]}` : '';
               return (
                 <g key={`bay-${pt.id}`}>
                   <rect x={bayX} y={bayY} width={BAY_W} height={BAY_D} rx={0.08}
@@ -298,16 +305,10 @@ const SlamMapTab = () => {
                       y1={bayY + BAY_D * t} y2={bayY + BAY_D * t}
                       stroke="rgba(217,189,147,0.18)" strokeWidth={0.025} />
                   ))}
-                  <text x={fx(pt.x)} y={labelY - 0.18} textAnchor="middle"
-                    fontSize={0.42} fontWeight="700" fill="rgba(235,214,176,0.95)">
-                    {line1}
+                  <text x={fx(pt.x)} y={labelY + 0.17} textAnchor="middle"
+                    fontSize={0.52} fontWeight="700" fill="rgba(235,214,176,0.95)">
+                    {pt.name || pt.id}
                   </text>
-                  {line2 && (
-                    <text x={fx(pt.x)} y={labelY + 0.36} textAnchor="middle"
-                      fontSize={0.42} fontWeight="700" fill="rgba(235,214,176,0.95)">
-                      {line2}
-                    </text>
-                  )}
                 </g>
               );
             })}

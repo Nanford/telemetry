@@ -11,6 +11,10 @@ const PADDING = 1.5;
 // 告警阈值与巡检地图/采集端保持一致
 const TEMP_LIMIT = 32;
 const RH_LIMIT = 65;
+// 垛位矩形几何（与巡检平面图一致：上下两排短垛 + 中央走道）
+const BAY_W = 1.28;
+const BAY_D = 3.2;
+const BAY_OFF = 0.25;
 
 // 蓝→青→绿→黄→橙→红热力色带
 const PALETTE = [
@@ -142,10 +146,25 @@ const WarehouseHeatmap = () => {
     return [min, max];
   }, [samples]);
 
-  const layout = useMemo(
-    () => computeInspectionMapLayout({ area: area || {}, points, trail: [] }),
-    [area, points]
-  );
+  // 布局边界：楼层配置了宽高用配置；否则按点位推导，并把垛位进深与标签空间
+  // 一并纳入——否则推导模式下 bounds 只剩走道一条窄带，两排垛位会被画布裁掉。
+  const layout = useMemo(() => {
+    const base = computeInspectionMapLayout({ area: area || {}, points, trail: [] });
+    if (!base.bounds || !points.length) return base;
+    const xs = points.map((p) => Number(p.x) || 0);
+    const ys = points.map((p) => Number(p.y) || 0);
+    const yMin = Math.min(...ys);
+    const yMax = Math.max(...ys);
+    return {
+      ...base,
+      bounds: {
+        minX: Math.min(base.bounds.minX, Math.min(...xs) - BAY_W / 2 - 0.5),
+        maxX: Math.max(base.bounds.maxX, Math.max(...xs) + BAY_W / 2 + 0.5),
+        minY: Math.min(base.bounds.minY, yMin - BAY_OFF - BAY_D - 0.9),
+        maxY: Math.max(base.bounds.maxY, yMax + BAY_OFF + BAY_D + 0.9)
+      }
+    };
+  }, [area, points]);
 
   // 离屏 canvas 逐像素插值生成热力场，再作为图片嵌入 SVG 房间区域
   const heatmapUrl = useMemo(() => {
@@ -196,9 +215,6 @@ const WarehouseHeatmap = () => {
   const aisleMin = ptYs.length ? Math.min(...ptYs) : 0;
   const aisleMax = ptYs.length ? Math.max(...ptYs) : 0;
   const aisleMid = (aisleMin + aisleMax) / 2;
-  const BAY_W = 1.28;
-  const BAY_D = 3.2;
-  const BAY_OFF = 0.25;
   const ptXs = points.map((p) => Number(p.x) || 0);
   const baySpanMinX = ptXs.length ? Math.min(...ptXs) - BAY_W / 2 - 0.3 : bounds.minX;
   const baySpanMaxX = ptXs.length ? Math.max(...ptXs) + BAY_W / 2 + 0.3 : bounds.maxX;
@@ -326,22 +342,27 @@ const WarehouseHeatmap = () => {
             );
           })}
 
-          {/* 采样点标记 + 读数标签 */}
+          {/* 采样点标记 + 读数标签（标签放在远离走道一侧，避免与走道文字/对排标签相撞） */}
           {points.map((pt) => {
             const rd = readingMap[pt.id];
             const v = rd ? num(rd[modeMeta.key]) : null;
             const abn = v !== null && v > modeMeta.limit;
+            const cx = fx(Number(pt.x) || 0);
+            const cy = fy(Number(pt.y) || 0);
+            const isTop = (Number(pt.y) || 0) >= aisleMid;
+            const nameY = isTop ? cy - 0.62 : cy + 0.5;
+            const valueY = isTop ? cy - 0.26 : cy + 0.86;
             return (
               <g key={`pt-${pt.id}`}>
-                <circle cx={fx(Number(pt.x) || 0)} cy={fy(Number(pt.y) || 0)} r={0.2}
+                <circle cx={cx} cy={cy} r={0.2}
                   fill="rgba(47,125,255,0.4)" stroke="#fff" strokeWidth={0.05} />
-                <text x={fx(Number(pt.x) || 0)} y={fy(Number(pt.y) || 0) - 0.62} textAnchor="middle"
+                <text x={cx} y={nameY} textAnchor="middle"
                   fontSize={0.3} fontWeight="600"
                   fill={abn ? '#f87171' : '#e8f3ff'}
                   stroke="rgba(9,32,72,0.85)" strokeWidth={0.025} paintOrder="stroke">
                   {pt.name || pt.id}
                 </text>
-                <text x={fx(Number(pt.x) || 0)} y={fy(Number(pt.y) || 0) - 0.26} textAnchor="middle"
+                <text x={cx} y={valueY} textAnchor="middle"
                   fontSize={0.32} fontWeight="700"
                   fill={abn ? '#f87171' : '#e8f3ff'}
                   stroke="rgba(9,32,72,0.85)" strokeWidth={0.025} paintOrder="stroke">
