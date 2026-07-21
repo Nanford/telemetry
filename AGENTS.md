@@ -58,12 +58,12 @@ Single Express server that doubles as MQTT consumer — no separate worker proce
 - **api.js** — all API calls. Every getter has a try/catch that falls back to mock data (`data/mock.js`) when the backend is unreachable. API base URL configurable via `VITE_API_BASE` env var.
 - **App.jsx** — SPA shell with sidebar nav (react-router-dom v6). Routes: `/` Overview, `/zones` ZoneDetail, `/map` MapView, `/alerts` Alerts, `/rules` Rules, `/devices` Devices.
 - **pages/** — one page component per route.
-- **components/** — shared: `StatCard`, `ZoneCard`, `TrendChart` (recharts), `MapPanel` (react-leaflet).
+- **components/** — shared: `StatCard`, `ZoneCard`, `TrendChart` (recharts), `MapPanel` (react-leaflet), `WarehouseHeatmap` (canvas IDW 空间插值热力图，数据来自 SLAM 巡检点位).
 
 ### Key Database Tables
 
 - `telemetry_raw` — every MQTT reading (temp, humidity, GPS). Indexed by sensor+ts, zone+ts, device+ts.
-- `telemetry_hourly` — pre-aggregated hourly stats. Trend API falls back to raw-table aggregation if this is empty.
+- `telemetry_hourly` — pre-aggregated hourly stats. Trend API falls back to raw-table aggregation if this is empty. Trend API also accepts `bucket_minutes` (e.g. 30) for fixed minute-bucket aggregation on `telemetry_raw`.
 - `alert_rules` — threshold config per zone or sensor, with trigger/recover duration windows.
 - `alerts` — alert instances (open → acked → closed lifecycle).
 - `zone_geofences` — rectangular GPS boundaries; ingest uses these for automatic zone assignment.
