@@ -1,5 +1,4 @@
 const dotenv = require('dotenv');
-const { buildSlamArea } = require('./slam-config');
 
 dotenv.config();
 
@@ -97,15 +96,16 @@ const config = {
     clientId: process.env.MQTT_CLIENT_ID || `telemetry-api-${Math.random().toString(16).slice(2)}`
   },
   slam: {
-    // A-1-2 一间房(非整层)。默认尺寸=CAD 实测内净; env(SLAM_AREA_WIDTH/HEIGHT) 可覆盖,
-    // 但改真实场地务必同步这里, 否则前端画布比例与垛位坐标不一致。
-    // door/aisle 供前端画南门与真实 4m 走道带(不再靠点位反推)。
+    // A-1-2 一间房(非整层)。area 几何全部取自上方 CAD 实测常量, 与垛位坐标严格同系:
+    // width/height=房间内净(东西×南北), aisle=真实 4m 走道带, door=南门。
+    // 这些是硬编码权威值, 不再从 env 取 —— 曾因 .env 残留 SLAM_AREA_WIDTH/HEIGHT=20×12
+    // 覆盖真实尺寸, 使前端把落在 56×36 空间的点位全部裁到 20×12 框外 → 巡检地图/热力图空白。
+    // 换场地或现场标定后, 只改上方 A12_* 常量即可(见坐标系说明), 无需再碰 env。
     area: {
-      width: 55.99,
-      height: 36.35,
-      ...buildSlamArea(process.env),
       area_id: 'A-1-2',
       name: 'A-1-2 库房',
+      width: 55.99,   // 东西向内净 (m, CAD 实测)
+      height: 36.35,  // 南北向内净 (m, CAD 实测)
       aisle: { y0: A12_AISLE.y0, y1: A12_AISLE.y1 },
       door: A12_DOOR
     },
