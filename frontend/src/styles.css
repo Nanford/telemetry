@@ -1935,6 +1935,17 @@ body::after {
   border-bottom: 1px solid rgba(101, 200, 255, 0.25);
 }
 
+/* 数据就绪前的占位：与卡片同色同高，避免白框闪烁和布局跳动（巡检地图/热力图共用） */
+.heatmap-loading,
+.map-card-loading {
+  display: grid;
+  place-items: center;
+  min-height: 560px;
+  color: rgba(210, 235, 255, 0.6);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
 .heatmap-title-group {
   min-width: 0;
 }

@@ -259,7 +259,14 @@ const WarehouseHeatmap = () => {
   const formatValue = (value) => `${value.toFixed(1)}${modeMeta.unit}`;
 
   if (error && !area) return <div className="page-error">{error}</div>;
-  if (!area || !bounds) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
+  // 加载中用同款深色卡片占位，避免白色占位框闪烁/跳动。
+  if (!area || !bounds) {
+    return (
+      <section className="card heatmap-card" aria-label="仓间温湿度平面分析">
+        <div className="heatmap-loading">加载中…</div>
+      </section>
+    );
+  }
 
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;

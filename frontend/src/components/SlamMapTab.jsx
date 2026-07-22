@@ -218,7 +218,14 @@ const SlamMapTab = () => {
   const latestTimestamp = useMemo(() => Math.max(0, ...Array.from(latestReadings.values()).map((reading) => timeMs(reading.ts))), [latestReadings]);
 
   if (error && !area) return <div className="page-error">{error}</div>;
-  if (!area || !bounds) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
+  // 加载中用同款深色卡片占位，避免白色占位框闪烁/跳动。
+  if (!area || !bounds) {
+    return (
+      <section className="card inspection-map-card" aria-label="仓间巡检地图">
+        <div className="map-card-loading">加载中…</div>
+      </section>
+    );
+  }
 
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
