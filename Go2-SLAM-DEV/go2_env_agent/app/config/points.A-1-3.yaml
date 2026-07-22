@@ -32,3 +32,14 @@ points:
   - { id: A-1-3-21, zone_id: A-1-3, name: 垛位 A-1-3-21, x: 22.5, y: 3.2, radius: 0.7, patrol_seq: 20 }
   - { id: A-1-3-22, zone_id: A-1-3, name: 垛位 A-1-3-22, x: 20.0, y: 3.2, radius: 0.7, patrol_seq: 19 }
   - { id: A-1-3-23, zone_id: A-1-3, name: 垛位 A-1-3-23, x: 17.5, y: 3.2, radius: 0.7, patrol_seq: 18 }
+  - { id: A-1-3-C01, zone_id: A-1-3, name: 巷道 A-1-3-C01, x: 3.75, y: 4.0, radius: 0.7, patrol_seq: 24 }
+  - { id: A-1-3-C02, zone_id: A-1-3, name: 巷道 A-1-3-C02, x: 6.25, y: 4.0, radius: 0.7, patrol_seq: 25 }
+  - { id: A-1-3-C03, zone_id: A-1-3, name: 巷道 A-1-3-C03, x: 8.75, y: 4.0, radius: 0.7, patrol_seq: 26 }
+  - { id: A-1-3-C04, zone_id: A-1-3, name: 巷道 A-1-3-C04, x: 11.25, y: 4.0, radius: 0.7, patrol_seq: 27 }
+  - { id: A-1-3-C05, zone_id: A-1-3, name: 巷道 A-1-3-C05, x: 13.75, y: 4.0, radius: 0.7, patrol_seq: 28 }
+  - { id: A-1-3-C06, zone_id: A-1-3, name: 巷道 A-1-3-C06, x: 16.25, y: 4.0, radius: 0.7, patrol_seq: 29 }
+  - { id: A-1-3-C07, zone_id: A-1-3, name: 巷道 A-1-3-C07, x: 18.75, y: 4.0, radius: 0.7, patrol_seq: 30 }
+  - { id: A-1-3-C08, zone_id: A-1-3, name: 巷道 A-1-3-C08, x: 21.25, y: 4.0, radius: 0.7, patrol_seq: 31 }
+  - { id: A-1-3-C09, zone_id: A-1-3, name: 巷道 A-1-3-C09, x: 23.75, y: 4.0, radius: 0.7, patrol_seq: 32 }
+  - { id: A-1-3-C10, zone_id: A-1-3, name: 巷道 A-1-3-C10, x: 26.25, y: 4.0, radius: 0.7, patrol_seq: 33 }
+  - { id: A-1-3-C11, zone_id: A-1-3, name: 巷道 A-1-3-C11, x: 28.75, y: 4.0, radius: 0.7, patrol_seq: 34 }

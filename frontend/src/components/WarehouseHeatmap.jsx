@@ -398,7 +398,7 @@ const WarehouseHeatmap = () => {
                 </g>
               ))}
 
-              {mappedPoints.map((point) => {
+              {mappedPoints.filter((point) => point.kind !== 'aisle').map((point) => {
                 const bay = getBayGeometry(point);
                 const sample = sampleByPointId.get(point.id);
                 const relativeValue = sample ? (sample.v - domain[0]) / (domain[1] - domain[0] || 1) : null;

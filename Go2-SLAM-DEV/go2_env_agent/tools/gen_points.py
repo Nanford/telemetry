@@ -65,7 +65,7 @@ def bay_id(room: str, num: int) -> str:
 
 
 def build_points(room: str, top: List[Optional[int]], bottom: List[Optional[int]]):
-    """按网格生成点位, 并给出巡检顺序(上排东→西, 下排西→东)。"""
+    """按网格生成点位(垛位 + 巷道点), 并给出巡检顺序(上排东→西, 下排西→东)。"""
     points = {}  # point_id -> dict
 
     # 上排: x 随列号递增
@@ -73,13 +73,13 @@ def build_points(room: str, top: List[Optional[int]], bottom: List[Optional[int]
         if num is None:
             continue
         pid = bay_id(room, num)
-        points[pid] = {"id": pid, "x": round(COL_PITCH * (col + 1), 2), "y": Y_TOP}
+        points[pid] = {"id": pid, "x": round(COL_PITCH * (col + 1), 2), "y": Y_TOP, "kind": "bay"}
     # 下排
     for col, num in enumerate(bottom):
         if num is None:
             continue
         pid = bay_id(room, num)
-        points[pid] = {"id": pid, "x": round(COL_PITCH * (col + 1), 2), "y": Y_BOTTOM}
+        points[pid] = {"id": pid, "x": round(COL_PITCH * (col + 1), 2), "y": Y_BOTTOM, "kind": "bay"}
 
     # 巡检顺序: 上排从东(大 x)往西, 再下排从西(小 x)往东, 单程无重复
     top_ids = [bay_id(room, n) for n in top if n is not None]
@@ -88,18 +88,45 @@ def build_points(room: str, top: List[Optional[int]], bottom: List[Optional[int]
     for seq, pid in enumerate(order, start=1):
         points[pid]["patrol_seq"] = seq
 
+    # 巷道采集点: 相邻列中点、落在中央走道中线(上下排 y 均值)。
+    # 供狗在走道"在途"采样归属——走道中线离两排垛各约0.8m, 垛点半径盖不到,
+    # 没有巷道点这些样本会匹配不上。两侧至少一侧有垛才布点。id 用 C 前缀区分。
+    y_aisle = round((Y_TOP + Y_BOTTOM) / 2, 2)
+    aisle_seq = 0
+    for col in range(len(top) - 1):
+        left = (top[col] is not None) or (bottom[col] is not None)
+        right = (top[col + 1] is not None) or (bottom[col + 1] is not None)
+        if not (left and right):
+            continue
+        aisle_seq += 1
+        pid = f"{room}-C{aisle_seq:02d}"
+        points[pid] = {
+            "id": pid,
+            "x": round(COL_PITCH * (col + 1.5), 2),   # 相邻两列中点
+            "y": y_aisle,
+            "kind": "aisle",
+            "patrol_seq": len(order) + aisle_seq,     # 排在垛位之后
+        }
+
     return points
+
+
+def _sort_key(pid: str):
+    """垛位(数字号)在前、巷道点(C 前缀)在后, 各自按序号排。"""
+    tail = pid.split("-")[-1]
+    return (1, int(tail[1:])) if tail.startswith("C") else (0, int(tail))
 
 
 def render_yaml(room: str, confidence: str, points: dict) -> str:
     lines = [HEADER.format(room=room, confidence=confidence)]
     lines.append(f"area_id: {room}")
     lines.append("points:")
-    # 按 point_id 数字顺序输出, 便于人工核对
-    for pid in sorted(points, key=lambda p: int(p.split("-")[-1])):
+    # 垛位数字号在前、巷道点在后, 便于人工核对
+    for pid in sorted(points, key=_sort_key):
         p = points[pid]
+        label = "巷道" if p.get("kind") == "aisle" else "垛位"
         lines.append(
-            f"  - {{ id: {pid}, zone_id: {room}, name: 垛位 {pid}, "
+            f"  - {{ id: {pid}, zone_id: {room}, name: {label} {pid}, "
             f"x: {p['x']}, y: {p['y']}, radius: {RADIUS}, patrol_seq: {p['patrol_seq']} }}"
         )
     return "\n".join(lines) + "\n"

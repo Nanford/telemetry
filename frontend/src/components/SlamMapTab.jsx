@@ -320,7 +320,7 @@ const SlamMapTab = () => {
             <rect x={fx(aisleStart)} y={fy(northRowY + BAY_OFFSET)} width={Math.max(1, aisleEnd - aisleStart)} height={Math.max(0.9, northRowY - southRowY - BAY_OFFSET * 2)} fill="#0d3158" fillOpacity="0.8" stroke="#65c8ff" strokeOpacity="0.27" strokeWidth={0.035} />
             <text x={fx((aisleStart + aisleEnd) / 2)} y={fy(rowMiddle) + 0.15} textAnchor="middle" fontSize={0.34} fill="#91d8ff" fillOpacity="0.62" letterSpacing="0.12em">中央巡检通道</text>
 
-            {mappedPoints.map((point) => {
+            {mappedPoints.filter((point) => point.kind !== 'aisle').map((point) => {
               const bay = getBay(point);
               const reading = freshReadings.get(point.id);
               const abnormal = reading && (num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT);
@@ -372,7 +372,7 @@ const SlamMapTab = () => {
               return (
                 <g key={`point-${point.id}`} className="inspection-map-point" role="button" tabIndex="0" aria-label={`${point.id} ${point.name || ''} ${reading ? `${reading.temp_c}摄氏度 ${reading.rh}%湿度` : '暂无新鲜读数'}`} onClick={() => activatePoint(point.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activatePoint(point.id); } }}>
                   {selected && <circle cx={fx(num(point.x))} cy={fy(num(point.y))} r="0.38" fill="none" stroke="#f5d777" strokeWidth="0.045" />}
-                  <circle cx={fx(num(point.x))} cy={fy(num(point.y))} r="0.17" fill={abnormal ? '#ff7382' : '#2f7dff'} stroke="#e9f7ff" strokeWidth="0.04" />
+                  <circle cx={fx(num(point.x))} cy={fy(num(point.y))} r={point.kind === 'aisle' ? '0.1' : '0.17'} fill={abnormal ? '#ff7382' : point.kind === 'aisle' ? '#8fb8ff' : '#2f7dff'} stroke="#e9f7ff" strokeWidth="0.04" />
                   {showReadings && reading && <text x={fx(num(point.x))} y={fy(num(point.y)) - 0.3} textAnchor="middle" fontSize="0.25" fontWeight="700" fill={abnormal ? '#ff9aa4' : '#91f2d0'}>{Number(reading.temp_c).toFixed(1)}° / {Number(reading.rh).toFixed(0)}%</text>}
                 </g>
               );
