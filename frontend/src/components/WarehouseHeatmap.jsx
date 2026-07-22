@@ -279,21 +279,47 @@ const WarehouseHeatmap = () => {
   const pointXs = mappedPoints.map((point) => num(point.x) || 0);
   const southRowY = pointYs.length ? Math.min(...pointYs) : height * 0.42;
   const northRowY = pointYs.length ? Math.max(...pointYs) : height * 0.58;
-  const aisleBottom = southRowY - BAY_OFFSET;
-  const aisleTop = northRowY + BAY_OFFSET;
-  const aisleStart = pointXs.length ? Math.min(...pointXs) - BAY_W / 2 - 0.22 : 0.7;
-  const aisleEnd = pointXs.length ? Math.max(...pointXs) + BAY_W / 2 + 0.22 : width - 0.7;
+  const rowMiddle = (southRowY + northRowY) / 2;
+  // 中央走道优先用配置真实 4m 带(area.aisle)；缺失时退回按采集车道推导。
+  const aisleBottom = area.aisle ? area.aisle.y0 : southRowY - BAY_OFFSET;
+  const aisleTop = area.aisle ? area.aisle.y1 : northRowY + BAY_OFFSET;
+  // 走道沿垛体 x 范围铺满：有 bay 几何时取垛体外缘，否则按点位反推。
+  const bayRects = mappedPoints.map((point) => point.bay).filter(Boolean);
+  const aisleStart = bayRects.length
+    ? Math.min(...bayRects.map((b) => b.x0))
+    : pointXs.length ? Math.min(...pointXs) - 0.8 : 0.7;
+  const aisleEnd = bayRects.length
+    ? Math.max(...bayRects.map((b) => b.x1))
+    : pointXs.length ? Math.max(...pointXs) + 0.8 : width - 0.7;
   const centerAisleHeight = Math.max(0.8, aisleTop - aisleBottom);
   const selectedSample = selectedPointId ? sampleByPointId.get(selectedPointId) : null;
-  const columnXs = [0.35, 3.2, 6.4, 9.6, 12.8, 16, width - 0.35];
+  // 结构柱：落在成对垛列之间的间隙(北排相邻中心间距 > 4.5m 处)，由真实坐标推导后示意绘制。
+  const northCenters = mappedPoints
+    .filter((point) => point.row === 'N')
+    .map((point) => num(point.x))
+    .filter((value) => value !== null)
+    .sort((a, b) => a - b);
+  const columnXs = [];
+  for (let index = 0; index < northCenters.length - 1; index += 1) {
+    if (northCenters[index + 1] - northCenters[index] > 4.5) {
+      columnXs.push((northCenters[index] + northCenters[index + 1]) / 2);
+    }
+  }
 
+  // 垛体矩形优先用配置真实几何(point.bay)；缺失时按固定尺寸从点位反推。
   const getBayGeometry = (point) => {
+    const rect = point.bay;
+    if (rect) {
+      return { x: fx(rect.x0), y: fy(rect.y1), w: rect.x1 - rect.x0, h: rect.y1 - rect.y0, north: (rect.y0 + rect.y1) / 2 >= rowMiddle };
+    }
     const x = num(point.x) || 0;
     const y = num(point.y) || 0;
-    const north = y >= (southRowY + northRowY) / 2;
+    const north = y >= rowMiddle;
     return {
       x: fx(x) - BAY_W / 2,
       y: north ? fy(y + BAY_OFFSET + BAY_D) : fy(y - BAY_OFFSET),
+      w: BAY_W,
+      h: BAY_D,
       north
     };
   };
@@ -408,27 +434,27 @@ const WarehouseHeatmap = () => {
 
                 return (
                   <g key={`bay-${point.id}`}>
-                    <rect x={bay.x} y={bay.y} width={BAY_W} height={BAY_D} rx="0.045"
+                    <rect x={bay.x} y={bay.y} width={bay.w} height={bay.h} rx="0.045"
                       fill={sample ? `rgba(${red}, ${green}, ${blue}, 0.17)` : 'rgba(212, 186, 139, 0.10)'}
                       stroke={isAbnormal ? 'rgba(255, 110, 122, 0.98)' : 'rgba(224, 203, 165, 0.62)'}
                       strokeWidth={isAbnormal ? '0.07' : '0.038'} />
-                    <rect x={bay.x + 0.06} y={bay.y + 0.06} width={BAY_W - 0.12} height={BAY_D - 0.12}
+                    <rect x={bay.x + 0.06} y={bay.y + 0.06} width={bay.w - 0.12} height={bay.h - 0.12}
                       fill="url(#bay-shelf-grid)" stroke="rgba(224, 203, 165, 0.18)" strokeWidth="0.018" />
-                    <text x={bay.x + BAY_W / 2} y={bay.y + BAY_D / 2 + 0.22} textAnchor="middle" fontSize="0.26" fontWeight="700"
+                    <text x={bay.x + bay.w / 2} y={bay.y + bay.h / 2 + 0.18} textAnchor="middle" fontSize="0.5" fontWeight="700"
                       fill="rgba(235, 222, 198, 0.84)">{bayCode}</text>
                   </g>
                 );
               })}
 
-              <g aria-hidden="true">
-                <rect x={floorX + width - 0.12} y={fy((aisleTop + aisleBottom) / 2) - 0.82} width="0.42" height="1.64" rx="0.04"
-                  fill="rgba(37, 124, 202, 0.24)" stroke="rgba(122, 215, 255, 0.9)" strokeWidth="0.055" />
-                <path d={`M ${floorX + width - 0.12} ${fy((aisleTop + aisleBottom) / 2) - 0.82} A 0.82 0.82 0 0 0 ${floorX + width - 0.94} ${fy((aisleTop + aisleBottom) / 2)}`}
-                  fill="none" stroke="rgba(122, 215, 255, 0.62)" strokeWidth="0.038" />
-                <text x={floorX + width - 0.4} y={fy((aisleTop + aisleBottom) / 2) + 0.06} textAnchor="middle" fontSize="0.22" fill="#bfeaff">入口</text>
-              </g>
+              {area.door && (
+                <g aria-hidden="true">
+                  <rect x={fx(num(area.door.x)) - (num(area.door.width) || 4) / 2} y={fy(num(area.door.y)) - 0.16} width={num(area.door.width) || 4} height="0.32" rx="0.04"
+                    fill="rgba(37, 124, 202, 0.24)" stroke="rgba(122, 215, 255, 0.9)" strokeWidth="0.055" />
+                  <text x={fx(num(area.door.x))} y={fy(num(area.door.y)) - 0.32} textAnchor="middle" fontSize="0.34" fill="#bfeaff">南门 · 入口</text>
+                </g>
+              )}
 
-              {[3.1, 8.1, 14.1].filter((x) => x < width - 0.4).map((x, index) => (
+              {[width * 0.2, width * 0.5, width * 0.8].filter((x) => x < width - 0.4).map((x, index) => (
                 <g key={`safety-${index}`}>
                   <rect x={fx(x)} y={floorY + 0.42} width="0.28" height="0.38" rx="0.025" fill="#d94351" />
                   <text x={fx(x) + 0.14} y={floorY + 0.69} textAnchor="middle" fontSize="0.19" fontWeight="700" fill="#fff">消</text>

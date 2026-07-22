@@ -48,17 +48,24 @@ const InspectionRouteMap = ({
     bottom: plotBottom
   });
 
-  // 预设路线按“蛇形”排序连线：上排西→东、下排东→西，避免按数组顺序连出斜穿全图的杂线。
+  // 预设路线优先按巡检序 patrol_seq 连线（现场单程：上排东→西、下排西→东）。
+  // 缺 patrol_seq 时退回“蛇形”排序，避免按数组顺序连出斜穿全图的杂线。
+  // 只连垛位停靠点，巷道在途点(kind:'aisle')不参与路线连线。
   const routeYs = points.map((point) => Number(point.y));
   const aisleMid = routeYs.length
     ? (Math.min(...routeYs) + Math.max(...routeYs)) / 2
     : 0;
-  const orderedRoute = [...points].sort((a, b) => {
-    const aTop = Number(a.y) >= aisleMid;
-    const bTop = Number(b.y) >= aisleMid;
-    if (aTop !== bTop) return aTop ? -1 : 1;           // 上排在前
-    return aTop ? Number(a.x) - Number(b.x) : Number(b.x) - Number(a.x);
-  });
+  const routeStops = points.filter((point) => point.kind !== 'aisle');
+  const hasPatrolSeq = routeStops.length > 0
+    && routeStops.every((point) => Number.isFinite(Number(point.patrol_seq)));
+  const orderedRoute = hasPatrolSeq
+    ? [...routeStops].sort((a, b) => Number(a.patrol_seq) - Number(b.patrol_seq))
+    : [...routeStops].sort((a, b) => {
+      const aTop = Number(a.y) >= aisleMid;
+      const bTop = Number(b.y) >= aisleMid;
+      if (aTop !== bTop) return aTop ? -1 : 1;         // 上排在前
+      return aTop ? Number(a.x) - Number(b.x) : Number(b.x) - Number(a.x);
+    });
   const routePoints = orderedRoute
     .map((point) => `${projectX(point.x)},${projectY(point.y)}`)
     .join(' ');

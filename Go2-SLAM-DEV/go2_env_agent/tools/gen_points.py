@@ -17,10 +17,14 @@ import os
 from typing import List, Optional
 
 # ---- 网格参数(示意坐标, 现场标定替换) ----
+# 注意: 本脚本只负责"命名/拓扑/巡检顺序"这套骨架, 坐标是均匀示意网格, 不是真实几何。
+# A-1-2 的真实垛位坐标(CAD 实测, 非均匀成对间距)是权威匹配源, 落在
+#   backend/src/config.js 的 slam.points —— 后端 matchInspectionPoint 以它为准。
+# 设备端 points.A-1-2.yaml 的坐标同为示意值, 现场 SLAM 标定后按 id 替换真实 x/y。
 COL_PITCH = 2.5      # 相邻垛位列间距(m); > 2*RADIUS 保证不重叠
 Y_TOP = 4.8          # 上排采集点 y(北侧)
 Y_BOTTOM = 3.2       # 下排采集点 y(南侧); 与上排相差 1.6m, 靠遥控停到目标侧区分
-RADIUS = 0.7         # 匹配半径(m)
+RADIUS = 0.9         # 匹配半径(m); 与 config.js A12_RADIUS 保持一致
 
 # ---- 每间库房垛位排布(西→东, None=空列/横向消防通道) ----
 # confidence: 该排布的可信度。A-1-2 已与用户确认; 其余为平面图读取, 需现场核对。

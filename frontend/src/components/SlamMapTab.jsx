@@ -243,9 +243,29 @@ const SlamMapTab = () => {
   const pointYs = mappedPoints.map((point) => num(point.y)).filter((value) => value !== null);
   const southRowY = pointYs.length ? Math.min(...pointYs) : height * 0.42;
   const northRowY = pointYs.length ? Math.max(...pointYs) : height * 0.58;
-  const rowMiddle = (southRowY + northRowY) / 2;
-  const aisleStart = pointXs.length ? Math.min(...pointXs) - BAY_W / 2 - 0.22 : 0.7;
-  const aisleEnd = pointXs.length ? Math.max(...pointXs) + BAY_W / 2 + 0.22 : width - 0.7;
+  // 中央走道优先用配置的真实 4m 带(area.aisle)；缺失时退回按采集车道推导。
+  const aisleBand = area.aisle || { y0: southRowY - BAY_OFFSET, y1: northRowY + BAY_OFFSET };
+  const rowMiddle = (aisleBand.y0 + aisleBand.y1) / 2;
+  // 走道沿垛体 x 范围铺满：有 bay 几何时取垛体外缘，否则按点位反推。
+  const bayRects = mappedPoints.map((point) => point.bay).filter(Boolean);
+  const aisleStart = bayRects.length
+    ? Math.min(...bayRects.map((b) => b.x0))
+    : pointXs.length ? Math.min(...pointXs) - 0.8 : 0.7;
+  const aisleEnd = bayRects.length
+    ? Math.max(...bayRects.map((b) => b.x1))
+    : pointXs.length ? Math.max(...pointXs) + 0.8 : width - 0.7;
+  // 结构柱：落在成对垛列之间的间隙(北排相邻中心间距 > 4.5m 处)，由真实坐标推导后示意绘制。
+  const northCenters = mappedPoints
+    .filter((point) => point.row === 'N')
+    .map((point) => num(point.x))
+    .filter((value) => value !== null)
+    .sort((a, b) => a - b);
+  const columnXs = [];
+  for (let index = 0; index < northCenters.length - 1; index += 1) {
+    if (northCenters[index + 1] - northCenters[index] > 4.5) {
+      columnXs.push((northCenters[index] + northCenters[index + 1]) / 2);
+    }
+  }
   const abnormalCount = Array.from(freshReadings.values()).filter((reading) => num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT).length;
   const selectedPoint = mappedPoints.find((point) => point.id === selectedPointId) || null;
   const selectedReading = selectedPoint ? freshReadings.get(selectedPoint.id) : null;
@@ -254,13 +274,26 @@ const SlamMapTab = () => {
     : '按已标定点位推导';
   const isStale = latestTimestamp > 0 && Date.now() - latestTimestamp > FRESH_WINDOW_MS;
 
+  // 垛体矩形优先用配置的真实几何(point.bay，米制 CAD 坐标)；缺失时按固定尺寸从点位反推。
   const getBay = (point) => {
+    const rect = point.bay;
+    if (rect) {
+      return {
+        x: fx(rect.x0),
+        y: fy(rect.y1),
+        w: rect.x1 - rect.x0,
+        h: rect.y1 - rect.y0,
+        labelY: fy((rect.y0 + rect.y1) / 2)
+      };
+    }
     const x = num(point.x) || 0;
     const y = num(point.y) || 0;
     const north = y >= rowMiddle;
     return {
       x: fx(x) - BAY_W / 2,
       y: north ? fy(y + BAY_OFFSET + BAY_D) : fy(y - BAY_OFFSET),
+      w: BAY_W,
+      h: BAY_D,
       labelY: fy(north ? y + BAY_OFFSET + BAY_D / 2 : y - BAY_OFFSET - BAY_D / 2)
     };
   };
@@ -317,35 +350,39 @@ const SlamMapTab = () => {
               <line key={`grid-y-${index}`} x1={MAP_PADDING} x2={MAP_PADDING + width} y1={MAP_PADDING + index * gridStep} y2={MAP_PADDING + index * gridStep} stroke="#65c8ff" strokeOpacity="0.11" strokeWidth={0.025} />
             ))}
 
-            <rect x={fx(aisleStart)} y={fy(northRowY + BAY_OFFSET)} width={Math.max(1, aisleEnd - aisleStart)} height={Math.max(0.9, northRowY - southRowY - BAY_OFFSET * 2)} fill="#0d3158" fillOpacity="0.8" stroke="#65c8ff" strokeOpacity="0.27" strokeWidth={0.035} />
+            <rect x={fx(aisleStart)} y={fy(aisleBand.y1)} width={Math.max(1, aisleEnd - aisleStart)} height={Math.max(0.9, aisleBand.y1 - aisleBand.y0)} fill="#0d3158" fillOpacity="0.8" stroke="#65c8ff" strokeOpacity="0.27" strokeWidth={0.035} />
             <text x={fx((aisleStart + aisleEnd) / 2)} y={fy(rowMiddle) + 0.15} textAnchor="middle" fontSize={0.34} fill="#91d8ff" fillOpacity="0.62" letterSpacing="0.12em">中央巡检通道</text>
 
             {mappedPoints.filter((point) => point.kind !== 'aisle').map((point) => {
               const bay = getBay(point);
               const reading = freshReadings.get(point.id);
               const abnormal = reading && (num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT);
+              const shelfCount = Math.max(4, Math.round(bay.h));
               return (
                 <g key={`bay-${point.id}`}>
-                  <rect x={bay.x} y={bay.y} width={BAY_W} height={BAY_D} rx={0.045} fill={abnormal ? '#57283b' : '#263f61'} fillOpacity="0.88" stroke={abnormal ? '#ff7382' : '#d9bd93'} strokeOpacity={abnormal ? 0.95 : 0.76} strokeWidth={abnormal ? 0.08 : 0.045} />
-                  {Array.from({ length: 9 }, (_, index) => (
-                    <line key={`shelf-${point.id}-${index}`} x1={bay.x + 0.06} x2={bay.x + BAY_W - 0.06} y1={bay.y + (BAY_D * (index + 1)) / 10} y2={bay.y + (BAY_D * (index + 1)) / 10} stroke="#f1d5a8" strokeOpacity="0.25" strokeWidth={0.022} />
+                  <rect x={bay.x} y={bay.y} width={bay.w} height={bay.h} rx={0.045} fill={abnormal ? '#57283b' : '#263f61'} fillOpacity="0.88" stroke={abnormal ? '#ff7382' : '#d9bd93'} strokeOpacity={abnormal ? 0.95 : 0.76} strokeWidth={abnormal ? 0.08 : 0.045} />
+                  {Array.from({ length: shelfCount - 1 }, (_, index) => (
+                    <line key={`shelf-${point.id}-${index}`} x1={bay.x + 0.06} x2={bay.x + bay.w - 0.06} y1={bay.y + (bay.h * (index + 1)) / shelfCount} y2={bay.y + (bay.h * (index + 1)) / shelfCount} stroke="#f1d5a8" strokeOpacity="0.25" strokeWidth={0.022} />
                   ))}
-                  <text x={fx(num(point.x))} y={bay.labelY + 0.17} textAnchor="middle" fontSize={0.38} fontWeight="700" fill="#f7e3be">{point.name || point.id}</text>
-                  <text x={fx(num(point.x))} y={bay.labelY + 0.53} textAnchor="middle" fontSize={0.19} fill="#c5dcf3" fillOpacity="0.68">{point.id}</text>
+                  <text x={fx(num(point.x))} y={bay.labelY + 0.02} textAnchor="middle" fontSize={0.52} fontWeight="700" fill="#f7e3be">{point.name || point.id}</text>
+                  <text x={fx(num(point.x))} y={bay.labelY + 0.42} textAnchor="middle" fontSize={0.26} fill="#c5dcf3" fillOpacity="0.68">{point.id}</text>
                 </g>
               );
             })}
 
-            {[0.5, 3.6, 6.8, 10, 13.2, 16.4, width - 0.5].filter((x) => x >= 0 && x <= width).map((x, index) => (
+            {columnXs.filter((x) => x >= 0 && x <= width).map((x, index) => (
               <g key={`column-${index}`}>
                 <rect x={fx(x) - 0.18} y={MAP_PADDING + 0.1} width={0.36} height={0.32} fill="#172533" stroke="#8aa4ba" strokeOpacity="0.45" strokeWidth={0.03} />
                 <rect x={fx(x) - 0.18} y={MAP_PADDING + height - 0.42} width={0.36} height={0.32} fill="#172533" stroke="#8aa4ba" strokeOpacity="0.45" strokeWidth={0.03} />
               </g>
             ))}
-            <g transform={`translate(${fx(Math.min(width - 0.75, aisleEnd + 0.12))} ${fy(rowMiddle) - 0.43})`}>
-              <path d="M0 0.9 V0.18 H0.58 V0.9" fill="none" stroke="#80d5ff" strokeWidth="0.06" />
-              <text x="0.29" y="1.17" textAnchor="middle" fontSize="0.24" fill="#8fd9ff">入口</text>
-            </g>
+            {area.door && (
+              <g transform={`translate(${fx(num(area.door.x))} ${fy(num(area.door.y))})`}>
+                <rect x={-(num(area.door.width) || 4) / 2} y={-0.16} width={num(area.door.width) || 4} height={0.32} rx={0.04} fill="#0d3158" stroke="#80d5ff" strokeWidth="0.06" />
+                <path d={`M ${-(num(area.door.width) || 4) / 2} -0.16 A ${num(area.door.width) || 4} ${num(area.door.width) || 4} 0 0 1 ${(num(area.door.width) || 4) / 2} -0.16`} fill="none" stroke="#80d5ff" strokeOpacity="0.5" strokeWidth="0.04" />
+                <text x="0" y="0.5" textAnchor="middle" fontSize="0.34" fill="#8fd9ff">南门 · 入口</text>
+              </g>
+            )}
             <g transform={`translate(${fx(Math.max(0.7, width * 0.32))} ${MAP_PADDING + 0.45})`}>
               <rect width="0.48" height="0.28" rx="0.03" fill="#b62334" />
               <text x="0.24" y="0.21" textAnchor="middle" fontSize="0.15" fontWeight="700" fill="#fff">消</text>
