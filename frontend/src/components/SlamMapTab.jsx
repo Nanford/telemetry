@@ -288,7 +288,7 @@ const SlamMapTab = () => {
         <span className="inspection-map-source-note">坐标范围 {dimensionLabel}</span>
       </div>
 
-      <div className="inspection-map-canvas">
+      <div className="inspection-map-canvas inspection-map-canvas--slam">
         <div className="inspection-map-floor">
           <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid meet">
             <defs>

@@ -2410,6 +2410,20 @@ body::after {
   background: radial-gradient(circle at 52% 24%, rgba(49, 135, 225, 0.16), transparent 46%), #061326;
 }
 
+/* SlamMapTab 的画布高度由 SVG 内容自适应（height:auto），
+   不复用 InspectionRouteMap 那套固定高度/裁切约束，否则下排垛位会被 max-height 裁掉。 */
+.inspection-map-canvas--slam {
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto;
+  overflow: visible;
+}
+
+/* 小屏下旧媒体查询给 svg 设了 900px min-width，让 floor 内部可横向滚动而不是直接裁掉。 */
+.inspection-map-canvas--slam .inspection-map-floor {
+  overflow-x: auto;
+}
+
 .inspection-map-floor {
   overflow: hidden;
   width: 100%;
