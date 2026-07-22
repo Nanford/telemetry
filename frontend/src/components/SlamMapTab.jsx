@@ -6,7 +6,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createSlamStream, getSlamLive, getSlamPoints, getSlamReadings } from '../api.js';
-import { computeMapGridStep, formatMetric } from '../lib/inspection.js';
+import { buildTrailSegments, computeMapGridStep, formatMetric } from '../lib/inspection.js';
 
 const POLL_MS = 5000;
 const TRAIL_WINDOW_MS = 60 * 60 * 1000;
@@ -191,9 +191,14 @@ const SlamMapTab = () => {
     return points.filter((point) => withinBounds(point.x, point.y, bounds));
   }, [bounds, points]);
 
-  const visibleTrail = useMemo(() => (
-    bounds ? trail.filter((item) => withinBounds(item.pos_x, item.pos_y, bounds)) : []
+  // 断档/位姿跳变/出界处断开，polyline 只连真实走过的段，杜绝跨洞假直线。
+  const trailSegments = useMemo(() => (
+    bounds ? buildTrailSegments(trail, { bounds }) : []
   ), [bounds, trail]);
+
+  const trailPointCount = useMemo(() => (
+    trailSegments.reduce((total, segment) => total + segment.length, 0)
+  ), [trailSegments]);
 
   const visibleDevices = useMemo(() => (
     bounds ? devices.filter((item) => withinBounds(item.pos_x, item.pos_y, bounds)) : []
@@ -241,7 +246,6 @@ const SlamMapTab = () => {
   const rowMiddle = (southRowY + northRowY) / 2;
   const aisleStart = pointXs.length ? Math.min(...pointXs) - BAY_W / 2 - 0.22 : 0.7;
   const aisleEnd = pointXs.length ? Math.max(...pointXs) + BAY_W / 2 + 0.22 : width - 0.7;
-  const trailPath = visibleTrail.map((item) => `${fx(num(item.pos_x))},${fy(num(item.pos_y))}`).join(' ');
   const abnormalCount = Array.from(freshReadings.values()).filter((reading) => num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT).length;
   const selectedPoint = mappedPoints.find((point) => point.id === selectedPointId) || null;
   const selectedReading = selectedPoint ? freshReadings.get(selectedPoint.id) : null;
@@ -289,7 +293,7 @@ const SlamMapTab = () => {
 
       <div className="inspection-map-stat-strip">
         <span>在线设备 <strong>{visibleDevices.length}</strong></span>
-        <span>有效轨迹 <strong>{visibleTrail.length}</strong></span>
+        <span>有效轨迹 <strong>{trailPointCount}</strong></span>
         <span>已匹配点位 <strong>{freshReadings.size} / {mappedPoints.length}</strong></span>
         <span className={abnormalCount ? 'inspection-map-bad' : ''}>阈值异常 <strong>{abnormalCount}</strong></span>
         <span className="inspection-map-source-note">坐标范围 {dimensionLabel}</span>
@@ -351,8 +355,15 @@ const SlamMapTab = () => {
               <text x="0.24" y="0.21" textAnchor="middle" fontSize="0.15" fontWeight="700" fill="#fff">消</text>
             </g>
 
-            {showTrail && trailPath && <polyline points={trailPath} fill="none" stroke="#50d4b1" strokeOpacity="0.82" strokeWidth="0.09" strokeLinecap="round" strokeLinejoin="round" />}
-            {showTrail && visibleTrail.map((item, index) => index % 3 === 0 && <circle key={`trail-${index}`} cx={fx(num(item.pos_x))} cy={fy(num(item.pos_y))} r="0.055" fill="#b7fff0" />)}
+            {showTrail && trailSegments.map((segment, segIndex) => {
+              if (segment.length === 1) {
+                const only = segment[0];
+                return <circle key={`trail-seg-${segIndex}`} cx={fx(num(only.pos_x))} cy={fy(num(only.pos_y))} r="0.09" fill="#50d4b1" fillOpacity="0.85" />;
+              }
+              const path = segment.map((item) => `${fx(num(item.pos_x))},${fy(num(item.pos_y))}`).join(' ');
+              return <polyline key={`trail-seg-${segIndex}`} points={path} fill="none" stroke="#50d4b1" strokeOpacity="0.82" strokeWidth="0.09" strokeLinecap="round" strokeLinejoin="round" />;
+            })}
+            {showTrail && trailSegments.flat().map((item, index) => (index % 3 === 0 ? <circle key={`trail-dot-${index}`} cx={fx(num(item.pos_x))} cy={fy(num(item.pos_y))} r="0.055" fill="#b7fff0" /> : null))}
 
             {mappedPoints.map((point) => {
               const reading = freshReadings.get(point.id);

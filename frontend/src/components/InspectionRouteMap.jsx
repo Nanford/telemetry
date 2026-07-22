@@ -1,5 +1,15 @@
+/**
+ * 单次巡检批次的路线/轨迹/点位读数图。
+ *
+ * INPUT: area/points/actualTrail/pointReadings（来自批次详情 API）。
+ * OUTPUT: 巡检路线与温湿度点位 SVG。
+ * POS: 批次详情页地图。等比投影（x/y 同一 scale + 居中）保证轨迹角度不失真；
+ *      实际轨迹经 buildTrailSegments 分段，断档/跳变/出界处不跨洞直连。
+ */
 import React, { useMemo, useState } from 'react';
 import {
+  buildTrailSegments,
+  computeEqualRatioProjection,
   computeInspectionMapLayout,
   formatDateTime,
   formatMetric
@@ -30,14 +40,13 @@ const InspectionRouteMap = ({
   const { bounds, canvas, source } = layout;
   const frameHeight = canvas.height - FRAME.y * 2;
   const plotBottom = canvas.height - PLOT.bottomPadding;
-  const coordinateWidth = Math.max(bounds.maxX - bounds.minX, 1);
-  const coordinateHeight = Math.max(bounds.maxY - bounds.minY, 1);
-  const projectX = (value) =>
-    PLOT.x + ((Number(value) - bounds.minX) / coordinateWidth) * PLOT.width;
-  const projectY = (value) =>
-    plotBottom -
-    ((Number(value) - bounds.minY) / coordinateHeight) *
-      (plotBottom - PLOT.top);
+  // 等比投影：x/y 共用同一 scale 并居中，避免非等比缩放把轨迹/路线角度压扁。
+  const { projectX, projectY } = computeEqualRatioProjection(bounds, {
+    x: PLOT.x,
+    width: PLOT.width,
+    top: PLOT.top,
+    bottom: plotBottom
+  });
 
   // 预设路线按“蛇形”排序连线：上排西→东、下排东→西，避免按数组顺序连出斜穿全图的杂线。
   const routeYs = points.map((point) => Number(point.y));
@@ -53,9 +62,8 @@ const InspectionRouteMap = ({
   const routePoints = orderedRoute
     .map((point) => `${projectX(point.x)},${projectY(point.y)}`)
     .join(' ');
-  const trailPoints = actualTrail
-    .map((point) => `${projectX(point.pos_x)},${projectY(point.pos_y)}`)
-    .join(' ');
+  // 实际轨迹按断档/跳变/出界分段，只连真实走过的段，杜绝跨洞假直线。
+  const trailSegments = buildTrailSegments(actualTrail, { bounds });
   const readingMap = Object.fromEntries(
     pointReadings.map((reading) => [reading.point_id, reading])
   );
@@ -186,26 +194,43 @@ const InspectionRouteMap = ({
             />
           )}
 
-          {trailPoints && (
-            <>
-              <polyline
-                points={trailPoints}
-                fill="none"
-                stroke="rgba(82,255,161,0.16)"
-                strokeWidth="13"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <polyline
-                points={trailPoints}
-                fill="none"
-                stroke="#58f59a"
-                strokeWidth="5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </>
-          )}
+          {trailSegments.map((segment, segIndex) => {
+            if (segment.length === 1) {
+              const only = segment[0];
+              return (
+                <circle
+                  key={`trail-seg-${segIndex}`}
+                  cx={projectX(only.pos_x)}
+                  cy={projectY(only.pos_y)}
+                  r="5"
+                  fill="#58f59a"
+                />
+              );
+            }
+            const pts = segment
+              .map((point) => `${projectX(point.pos_x)},${projectY(point.pos_y)}`)
+              .join(' ');
+            return (
+              <g key={`trail-seg-${segIndex}`}>
+                <polyline
+                  points={pts}
+                  fill="none"
+                  stroke="rgba(82,255,161,0.16)"
+                  strokeWidth="13"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <polyline
+                  points={pts}
+                  fill="none"
+                  stroke="#58f59a"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </g>
+            );
+          })}
 
           {points.map((point) => {
             const nodeX = projectX(point.x);
