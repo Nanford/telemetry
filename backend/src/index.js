@@ -651,6 +651,36 @@ app.get('/api/v1/slam/readings', async (_req, res) => {
   }
 });
 
+// 原始温度场取数：坐标未标定 / 设备未上报 point_id 时，热力图退化为“全仓域实测温度场”。
+// 直接返回本次巡检有效定位(fix=1)且带温湿度的原始读数，不依赖 point_id 匹配——
+// 读数虽未归属到具体垛位，但仍是仓内真实测点，可用于空间插值。时间窗即新鲜度过滤。
+app.get('/api/v1/slam/field', async (req, res) => {
+  try {
+    const deviceId = req.query.device_id;
+    const minutes = Number.isFinite(Number(req.query.minutes))
+      ? Math.max(1, Number(req.query.minutes))
+      : 180;
+
+    let sql = `
+      SELECT ts, pos_x, pos_y, temp_c, rh, device_id
+      FROM telemetry_raw
+      WHERE pose_source = 'go2_slam'
+        AND pose_fix = 1
+        AND pos_x IS NOT NULL AND pos_y IS NOT NULL
+        AND (temp_c IS NOT NULL OR rh IS NOT NULL)
+        AND ts >= (UTC_TIMESTAMP() - INTERVAL ? MINUTE)
+    `;
+    const params = [minutes];
+    if (deviceId) { sql += ' AND device_id = ?'; params.push(deviceId); }
+    sql += ' ORDER BY ts ASC LIMIT 2000';
+
+    const [rows] = await query(sql, params);
+    ok(res, rows);
+  } catch (err) {
+    fail(res, err.message, 500);
+  }
+});
+
 app.get('/api/v1/alerts', async (req, res) => {
   try {
     const { zone_id, status, level, start, end } = req.query;

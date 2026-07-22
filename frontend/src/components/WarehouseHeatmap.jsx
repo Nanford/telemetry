@@ -1,40 +1,43 @@
+/**
+ * 仓间温湿度热力图。
+ *
+ * 只使用已标定到 point_id 的新鲜读数：每条读数必须能对应到库位配置坐标，
+ * 且坐标位于当前仓间范围内。未标定、缺失 point_id 或越界的原始 SLAM 数据
+ * 不参与平面图绘制，避免把真实但尚未校准的数据错误投射到库位平面图上。
+ */
 import React, { useEffect, useMemo, useState } from 'react';
 import { getSlamPoints, getSlamReadings } from '../api.js';
-import {
-  computeInspectionMapLayout,
-  computeMapGridStep,
-  formatMetric
-} from '../lib/inspection.js';
 
 const POLL_MS = 30000;
-const PADDING = 1.5;
-// 告警阈值与巡检地图/采集端保持一致
+const FRESH_WINDOW_MS = 30 * 60 * 1000;
+const MAP_PADDING = 0.75;
 const TEMP_LIMIT = 32;
 const RH_LIMIT = 65;
-// 垛位矩形几何（与巡检平面图一致：上下两排短垛 + 中央走道）
+
+// 与后端 A-1-2 点位配置对应：上下两排短垛，中间保持完整主通道。
 const BAY_W = 1.28;
 const BAY_D = 3.2;
-const BAY_OFF = 0.25;
+const BAY_OFFSET = 0.25;
 
-// 实时新鲜度窗口：最新读数若超过此时长，即视为“非实时”，不再渲染成当前热力场。
-// 目的——避免历史/演示批次（如 Go2-SIM 灌入的模拟读数）被当成实时数据展示。
-// 取 30 分钟与巡检批次分段间隔（gapMinutes=30）对齐；现场巡检频率不同可调此值。
-const FRESH_WINDOW_MS = 30 * 60 * 1000;
-
-// 蓝→青→绿→黄→橙→红热力色带
 const PALETTE = [
-  [0, '#2563eb'],
-  [0.23, '#23a9e8'],
-  [0.45, '#3fcf91'],
-  [0.67, '#e6dc48'],
-  [0.84, '#ff8f32'],
-  [1, '#ef3e42']
+  [0, '#2e74ff'],
+  [0.23, '#28b7ea'],
+  [0.45, '#4ed09a'],
+  [0.67, '#f2d45a'],
+  [0.84, '#ff9851'],
+  [1, '#f24d61']
 ];
-const LEGEND_GRADIENT = `linear-gradient(90deg, ${PALETTE.map(([t, c]) => `${c} ${t * 100}%`).join(', ')})`;
+
+const LEGEND_GRADIENT = `linear-gradient(90deg, ${PALETTE.map(([stop, color]) => `${color} ${stop * 100}%`).join(', ')})`;
 
 const MODES = {
-  temp: { key: 'temp_c', label: '温度热力图', metric: '温度', unit: '℃', limit: TEMP_LIMIT },
-  rh: { key: 'rh', label: '湿度热力图', metric: '湿度', unit: '%', limit: RH_LIMIT }
+  temp: { key: 'temp_c', label: '温度', unit: '℃', limit: TEMP_LIMIT },
+  rh: { key: 'rh', label: '湿度', unit: '%RH', limit: RH_LIMIT }
+};
+
+const num = (value) => {
+  const result = Number(value);
+  return Number.isFinite(result) ? result : null;
 };
 
 const hexToRgb = (hex) => [
@@ -43,50 +46,86 @@ const hexToRgb = (hex) => [
   parseInt(hex.slice(5, 7), 16)
 ];
 
-const colorAt = (t) => {
-  const value = Math.max(0, Math.min(1, t));
+const colorAt = (value) => {
+  const clamped = Math.max(0, Math.min(1, value));
   let lower = PALETTE[0];
   let upper = PALETTE[PALETTE.length - 1];
-  for (let i = 1; i < PALETTE.length; i += 1) {
-    if (value <= PALETTE[i][0]) {
-      lower = PALETTE[i - 1];
-      upper = PALETTE[i];
+
+  for (let index = 1; index < PALETTE.length; index += 1) {
+    if (clamped <= PALETTE[index][0]) {
+      lower = PALETTE[index - 1];
+      upper = PALETTE[index];
       break;
     }
   }
-  const k = (value - lower[0]) / (upper[0] - lower[0] || 1);
-  const ca = hexToRgb(lower[1]);
-  const cb = hexToRgb(upper[1]);
-  return ca.map((v, i) => Math.round(v + (cb[i] - v) * k));
+
+  const progress = (clamped - lower[0]) / (upper[0] - lower[0] || 1);
+  const start = hexToRgb(lower[1]);
+  const end = hexToRgb(upper[1]);
+  return start.map((channel, index) => Math.round(channel + (end[index] - channel) * progress));
 };
 
-// 反距离加权（IDW）空间插值：离采样点越近，该点读数权重越大
-const idw = (mx, my, samples) => {
-  let weighted = 0;
+const idw = (x, y, samples) => {
+  let weightedValue = 0;
   let weightSum = 0;
-  for (const s of samples) {
-    const dx = mx - s.x;
-    const dy = my - s.y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < 1e-9) return s.v;
-    const w = 1 / Math.pow(d2, 1.3);
-    weighted += s.v * w;
-    weightSum += w;
+
+  samples.forEach((sample) => {
+    const distanceSquared = (x - sample.x) ** 2 + (y - sample.y) ** 2;
+    if (distanceSquared < 1e-9) {
+      weightedValue = sample.v;
+      weightSum = 1;
+      return;
+    }
+    const weight = 1 / Math.pow(distanceSquared, 1.35);
+    weightedValue += sample.v * weight;
+    weightSum += weight;
+  });
+
+  return weightSum ? weightedValue / weightSum : 0;
+};
+
+// 将 IDW 场离屏渲染为带透明度的位图。SVG 仅负责裁切和叠放 CAD 图层。
+const buildHeatUrl = (bounds, samples, domain) => {
+  if (!bounds || samples.length < 2) return null;
+
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const resolution = 28;
+  const pixelWidth = Math.max(32, Math.round(width * resolution));
+  const pixelHeight = Math.max(32, Math.round(height * resolution));
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+
+  canvas.width = pixelWidth;
+  canvas.height = pixelHeight;
+  const image = context.createImageData(pixelWidth, pixelHeight);
+  const [minValue, maxValue] = domain;
+  const range = maxValue - minValue || 1;
+
+  for (let row = 0; row < pixelHeight; row += 1) {
+    const y = bounds.maxY - ((row + 0.5) / pixelHeight) * height;
+    for (let column = 0; column < pixelWidth; column += 1) {
+      const x = bounds.minX + ((column + 0.5) / pixelWidth) * width;
+      const [red, green, blue] = colorAt((idw(x, y, samples) - minValue) / range);
+      const offset = (row * pixelWidth + column) * 4;
+      image.data[offset] = red;
+      image.data[offset + 1] = green;
+      image.data[offset + 2] = blue;
+      image.data[offset + 3] = 172;
+    }
   }
-  return weighted / weightSum;
+
+  context.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/png');
 };
 
-const num = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
-const formatAge = (ts) => {
-  if (!ts) return '--';
-  const sec = Math.round((Date.now() - new Date(ts).getTime()) / 1000);
-  if (sec < 60) return `${sec}s 前`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m 前`;
-  return `${Math.floor(sec / 3600)}h 前`;
+const formatAge = (timestamp) => {
+  if (!timestamp) return '--';
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s 前`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m 前`;
+  return `${Math.floor(seconds / 3600)}h 前`;
 };
 
 const WarehouseHeatmap = () => {
@@ -94,15 +133,17 @@ const WarehouseHeatmap = () => {
   const [points, setPoints] = useState([]);
   const [readings, setReadings] = useState([]);
   const [mode, setMode] = useState('temp');
+  const [selectedPointId, setSelectedPointId] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
+
     const load = async () => {
       try {
         const [pointData, readingData] = await Promise.all([getSlamPoints(), getSlamReadings()]);
         if (cancelled) return;
-        setArea(pointData.area);
+        setArea(pointData.area || null);
         setPoints(Array.isArray(pointData.points) ? pointData.points : []);
         setReadings(Array.isArray(readingData) ? readingData : []);
         setError('');
@@ -110,6 +151,7 @@ const WarehouseHeatmap = () => {
         if (!cancelled) setError(requestError.message || '热力数据加载失败');
       }
     };
+
     load();
     const timer = setInterval(load, POLL_MS);
     return () => {
@@ -120,291 +162,347 @@ const WarehouseHeatmap = () => {
 
   const modeMeta = MODES[mode];
 
-  const readingMap = useMemo(() => {
-    const map = {};
-    readings.forEach((r) => { map[r.point_id] = r; });
-    return map;
-  }, [readings]);
-
-  // 参与插值的采样点：有平面坐标、读数有效、且落在新鲜度窗口内。
-  // 过期读数（含昨天的演示批次）一律丢弃，不进热力场——保证画面只呈现实时数据。
-  const samples = useMemo(() => {
-    const freshBefore = Date.now() - FRESH_WINDOW_MS;
-    return points
-      .map((pt) => {
-        const rd = readingMap[pt.id];
-        if (!rd) return null;
-        const tsMs = new Date(rd.ts).getTime();
-        if (!Number.isFinite(tsMs) || tsMs < freshBefore) return null; // 过期读数：不参与
-        const v = num(rd[modeMeta.key]);
-        if (v === null) return null;
-        return { id: pt.id, name: pt.name, x: Number(pt.x) || 0, y: Number(pt.y) || 0, v };
-      })
-      .filter(Boolean);
-  }, [points, readingMap, modeMeta]);
-
-  // 色带域值跟随当前读数范围，保证仓内微小差异也能分辨
-  const domain = useMemo(() => {
-    if (!samples.length) return [0, 1];
-    const values = samples.map((s) => s.v);
-    let min = Math.min(...values);
-    let max = Math.max(...values);
-    if (max - min < 0.5) {
-      min -= 0.25;
-      max += 0.25;
+  // 优先采用仓间明确配置的尺寸；缺失时再根据已标定点位推导，绝不根据巡检轨迹扩张画布。
+  const bounds = useMemo(() => {
+    const configuredWidth = num(area?.width);
+    const configuredHeight = num(area?.height);
+    if (configuredWidth && configuredHeight) {
+      return { minX: 0, maxX: configuredWidth, minY: 0, maxY: configuredHeight };
     }
-    return [min, max];
-  }, [samples]);
+    if (!points.length) return null;
 
-  // 布局边界：楼层配置了宽高用配置；否则按点位推导，并把垛位进深与标签空间
-  // 一并纳入——否则推导模式下 bounds 只剩走道一条窄带，两排垛位会被画布裁掉。
-  const layout = useMemo(() => {
-    const base = computeInspectionMapLayout({ area: area || {}, points, trail: [] });
-    if (!base.bounds || !points.length) return base;
-    const xs = points.map((p) => Number(p.x) || 0);
-    const ys = points.map((p) => Number(p.y) || 0);
-    const yMin = Math.min(...ys);
-    const yMax = Math.max(...ys);
+    const xs = points.map((point) => num(point.x)).filter((value) => value !== null);
+    const ys = points.map((point) => num(point.y)).filter((value) => value !== null);
+    if (!xs.length || !ys.length) return null;
+
     return {
-      ...base,
-      bounds: {
-        minX: Math.min(base.bounds.minX, Math.min(...xs) - BAY_W / 2 - 0.5),
-        maxX: Math.max(base.bounds.maxX, Math.max(...xs) + BAY_W / 2 + 0.5),
-        minY: Math.min(base.bounds.minY, yMin - BAY_OFF - BAY_D - 0.9),
-        maxY: Math.max(base.bounds.maxY, yMax + BAY_OFF + BAY_D + 0.9)
-      }
+      minX: Math.min(0, Math.min(...xs) - BAY_W / 2 - 0.8),
+      maxX: Math.max(...xs) + BAY_W / 2 + 0.8,
+      minY: Math.min(0, Math.min(...ys) - BAY_D - BAY_OFFSET - 0.8),
+      maxY: Math.max(...ys) + BAY_D + BAY_OFFSET + 0.8
     };
   }, [area, points]);
 
-  // 离屏 canvas 逐像素插值生成热力场，再作为图片嵌入 SVG 房间区域
-  const heatmapUrl = useMemo(() => {
-    if (!layout.bounds || samples.length < 2) return null;
-    const { bounds } = layout;
-    const w = bounds.maxX - bounds.minX;
-    const h = bounds.maxY - bounds.minY;
-    const px = Math.max(16, Math.round(w * 24));
-    const py = Math.max(16, Math.round(h * 24));
-    const canvas = document.createElement('canvas');
-    canvas.width = px;
-    canvas.height = py;
-    const ctx = canvas.getContext('2d');
-    const img = ctx.createImageData(px, py);
-    const [dMin, dMax] = domain;
-    const span = dMax - dMin || 1;
-    for (let j = 0; j < py; j += 1) {
-      const my = bounds.maxY - ((j + 0.5) / py) * h;
-      for (let i = 0; i < px; i += 1) {
-        const mx = bounds.minX + ((i + 0.5) / px) * w;
-        const [r, g, b] = colorAt((idw(mx, my, samples) - dMin) / span);
-        const k = (j * px + i) * 4;
-        img.data[k] = r;
-        img.data[k + 1] = g;
-        img.data[k + 2] = b;
-        img.data[k + 3] = 190;
-      }
+  // 越出仓间边界的点位配置不渲染，防止异常配置破坏矩形仓间比例。
+  const mappedPoints = useMemo(() => {
+    if (!bounds) return [];
+    return points.filter((point) => {
+      const x = num(point.x);
+      const y = num(point.y);
+      return x !== null && y !== null && x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY;
+    });
+  }, [bounds, points]);
+
+  // 同一 point_id 仅保留最新一条读数；未知 point_id 直接忽略，不会在 CAD 图中被猜测定位。
+  const latestReadings = useMemo(() => {
+    const knownIds = new Set(mappedPoints.map((point) => point.id));
+    const result = new Map();
+
+    readings.forEach((reading) => {
+      if (!knownIds.has(reading.point_id)) return;
+      const timestamp = new Date(reading.ts).getTime();
+      if (!Number.isFinite(timestamp)) return;
+      const previous = result.get(reading.point_id);
+      if (!previous || timestamp > new Date(previous.ts).getTime()) result.set(reading.point_id, reading);
+    });
+
+    return result;
+  }, [mappedPoints, readings]);
+
+  const stackSamples = useMemo(() => {
+    const freshAfter = Date.now() - FRESH_WINDOW_MS;
+    return mappedPoints
+      .map((point) => {
+        const reading = latestReadings.get(point.id);
+        const timestamp = reading ? new Date(reading.ts).getTime() : 0;
+        const value = reading ? num(reading[modeMeta.key]) : null;
+        if (!reading || timestamp < freshAfter || value === null) return null;
+        return { id: point.id, name: point.name, x: num(point.x), y: num(point.y), v: value, ts: reading.ts };
+      })
+      .filter(Boolean);
+  }, [latestReadings, mappedPoints, modeMeta]);
+
+  const sampleByPointId = useMemo(
+    () => new Map(stackSamples.map((sample) => [sample.id, sample])),
+    [stackSamples]
+  );
+
+  const domain = useMemo(() => {
+    if (!stackSamples.length) return [0, 1];
+    const values = stackSamples.map((sample) => sample.v);
+    let minValue = Math.min(...values);
+    let maxValue = Math.max(...values);
+    if (maxValue - minValue < 0.5) {
+      minValue -= 0.25;
+      maxValue += 0.25;
     }
-    ctx.putImageData(img, 0, 0);
-    return canvas.toDataURL('image/png');
-  }, [layout, samples, domain]);
+    return [minValue, maxValue];
+  }, [stackSamples]);
+
+  const heatmapUrl = useMemo(
+    () => buildHeatUrl(bounds, stackSamples, domain),
+    [bounds, domain, stackSamples]
+  );
+
+  const latestTimestamp = useMemo(() => Array.from(latestReadings.values()).reduce((latest, reading) => {
+    const timestamp = new Date(reading.ts).getTime();
+    return Number.isFinite(timestamp) && timestamp > latest ? timestamp : latest;
+  }, 0), [latestReadings]);
+
+  const isStale = latestTimestamp > 0 && Date.now() - latestTimestamp > FRESH_WINDOW_MS;
+  const values = stackSamples.map((sample) => sample.v);
+  const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  const highest = stackSamples.reduce((best, sample) => (!best || sample.v > best.v ? sample : best), null);
+  const lowest = stackSamples.reduce((best, sample) => (!best || sample.v < best.v ? sample : best), null);
+  const abnormalCount = stackSamples.filter((sample) => sample.v > modeMeta.limit).length;
+
+  const formatValue = (value) => `${value.toFixed(1)}${modeMeta.unit}`;
 
   if (error && !area) return <div className="page-error">{error}</div>;
-  if (!area) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
-  if (!layout.bounds) return <div className="card" style={{ padding: 24 }}>暂无库房平面数据</div>;
+  if (!area || !bounds) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
 
-  const { bounds } = layout;
-  const w = bounds.maxX - bounds.minX;
-  const h = bounds.maxY - bounds.minY;
-  const vbW = w + PADDING * 2;
-  const vbH = h + PADDING * 2;
-  const fx = (x) => x - bounds.minX + PADDING;
-  const fy = (y) => bounds.maxY - y + PADDING;
-  const gridStep = computeMapGridStep(Math.max(w, h));
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const viewWidth = width + MAP_PADDING * 2;
+  const viewHeight = height + MAP_PADDING * 2;
+  const floorX = MAP_PADDING;
+  const floorY = MAP_PADDING;
+  const fx = (x) => x - bounds.minX + MAP_PADDING;
+  const fy = (y) => bounds.maxY - y + MAP_PADDING;
 
-  // 垛位与走道几何（与巡检平面图一致：上下两排短垛 + 中央走道）
-  const ptYs = points.map((p) => Number(p.y) || 0);
-  const aisleMin = ptYs.length ? Math.min(...ptYs) : 0;
-  const aisleMax = ptYs.length ? Math.max(...ptYs) : 0;
-  const aisleMid = (aisleMin + aisleMax) / 2;
-  const ptXs = points.map((p) => Number(p.x) || 0);
-  const baySpanMinX = ptXs.length ? Math.min(...ptXs) - BAY_W / 2 - 0.3 : bounds.minX;
-  const baySpanMaxX = ptXs.length ? Math.max(...ptXs) + BAY_W / 2 + 0.3 : bounds.maxX;
-  const aisleX = fx(baySpanMinX);
-  const aisleW = Math.max(baySpanMaxX - baySpanMinX, 1);
+  const pointYs = mappedPoints.map((point) => num(point.y) || 0);
+  const pointXs = mappedPoints.map((point) => num(point.x) || 0);
+  const southRowY = pointYs.length ? Math.min(...pointYs) : height * 0.42;
+  const northRowY = pointYs.length ? Math.max(...pointYs) : height * 0.58;
+  const aisleBottom = southRowY - BAY_OFFSET;
+  const aisleTop = northRowY + BAY_OFFSET;
+  const aisleStart = pointXs.length ? Math.min(...pointXs) - BAY_W / 2 - 0.22 : 0.7;
+  const aisleEnd = pointXs.length ? Math.max(...pointXs) + BAY_W / 2 + 0.22 : width - 0.7;
+  const centerAisleHeight = Math.max(0.8, aisleTop - aisleBottom);
+  const selectedSample = selectedPointId ? sampleByPointId.get(selectedPointId) : null;
+  const columnXs = [0.35, 3.2, 6.4, 9.6, 12.8, 16, width - 0.35];
 
-  const bayGeom = (pt) => {
-    const isTop = (Number(pt.y) || 0) >= aisleMid;
+  const getBayGeometry = (point) => {
+    const x = num(point.x) || 0;
+    const y = num(point.y) || 0;
+    const north = y >= (southRowY + northRowY) / 2;
     return {
-      bayX: fx(Number(pt.x) || 0) - BAY_W / 2,
-      bayY: isTop ? fy((Number(pt.y) || 0) + BAY_OFF + BAY_D) : fy((Number(pt.y) || 0) - BAY_OFF)
+      x: fx(x) - BAY_W / 2,
+      y: north ? fy(y + BAY_OFFSET + BAY_D) : fy(y - BAY_OFFSET),
+      north
     };
   };
 
-  // 概览统计
-  const values = samples.map((s) => s.v);
-  const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-  const maxSample = samples.reduce((best, s) => (!best || s.v > best.v ? s : best), null);
-  const minSample = samples.reduce((best, s) => (!best || s.v < best.v ? s : best), null);
-  const overCount = samples.filter((s) => s.v > modeMeta.limit).length;
-  const latestTs = readings.reduce((latest, r) => {
-    const t = new Date(r.ts).getTime();
-    return Number.isFinite(t) && t > latest ? t : latest;
-  }, 0);
-  // 有读数、但最新一条已超出新鲜度窗口 ⇒ 判定“非实时”（用于诚实提示，不渲染热力场）
-  const isStale = latestTs > 0 && Date.now() - latestTs > FRESH_WINDOW_MS;
-  const latestAge = latestTs ? formatAge(new Date(latestTs).toISOString()) : '--';
-
-  const formatValue = (v) => `${v.toFixed(1)}${modeMeta.unit}`;
-
   return (
-    <div className="card heatmap-card">
-      <div className="card-header">
-        <div>
-          <div className="card-title">仓间{modeMeta.metric}平面分析</div>
-          <div className="card-subtitle">
-            {area.name} · 基于 {samples.length} 个实时巡检点位的空间插值分析
-            {isStale && (
-              <span className="heatmap-bad" style={{ marginLeft: 8 }}>
-                ⚠ 当前无实时数据，最近读数 {latestAge}（可能为演示/历史数据）
-              </span>
-            )}
-          </div>
+    <section className="card heatmap-card" aria-label="仓间温湿度平面分析">
+      <header className="heatmap-header">
+        <div className="heatmap-title-group">
+          <span className="heatmap-eyebrow">环境空间监测</span>
+          <div className="card-title">{area.name} 温湿度平面</div>
+          <div className="card-subtitle">已标定点位 {stackSamples.length} / {mappedPoints.length} · 未匹配或越界数据不显示</div>
         </div>
-        <div className="heatmap-toolbar">
-          <div className="chip-row">
-            {Object.entries(MODES).map(([key, meta]) => (
-              <button
-                key={key}
-                className={`chip ${mode === key ? 'active' : ''}`}
-                onClick={() => setMode(key)}
-              >
-                {meta.label}
-              </button>
-            ))}
-          </div>
-          <div className="heatmap-legend">
-            <span>{formatMetric(domain[0])}{modeMeta.unit}</span>
+
+        <div className="heatmap-mode-switch" role="group" aria-label="监测指标">
+          {Object.entries(MODES).map(([key, meta]) => (
+            <button
+              key={key}
+              type="button"
+              className={mode === key ? 'active' : ''}
+              aria-pressed={mode === key}
+              onClick={() => {
+                setMode(key);
+                setSelectedPointId(null);
+              }}
+            >
+              {meta.label} ({meta.unit})
+            </button>
+          ))}
+        </div>
+
+        <div className="heatmap-header-right">
+          <div className="heatmap-legend" aria-label={`${modeMeta.label}图例`}>
+            <span>{domain[0].toFixed(1)}{modeMeta.unit}</span>
             <span className="heatmap-legend-bar" style={{ background: LEGEND_GRADIENT }} />
-            <span>{formatMetric(domain[1])}{modeMeta.unit}</span>
+            <span>{domain[1].toFixed(1)}{modeMeta.unit}</span>
           </div>
+          <span className={`heatmap-live-status ${isStale ? 'stale' : ''}`}>
+            <i /> {latestTimestamp ? `更新 ${formatAge(new Date(latestTimestamp).toISOString())}` : '等待数据'}
+          </span>
         </div>
+      </header>
+
+      <div className="heatmap-stat-strip">
+        <span>平均 <strong>{average === null ? '--' : formatValue(average)}</strong></span>
+        <span>最高 <strong>{highest ? formatValue(highest.v) : '--'}</strong>{highest ? ` · ${highest.name}` : ''}</span>
+        <span>最低 <strong>{lowest ? formatValue(lowest.v) : '--'}</strong>{lowest ? ` · ${lowest.name}` : ''}</span>
+        <span>超阈 <strong className={abnormalCount ? 'heatmap-bad' : ''}>{abnormalCount} 个</strong></span>
+        <span className="heatmap-source-note">数据源：已标定巡检点</span>
       </div>
 
-      <div className="heatmap-stats">
-        <span>平均{modeMeta.metric}<strong>{avg === null ? '--' : formatValue(avg)}</strong></span>
-        <span>
-          最高<strong>{maxSample ? formatValue(maxSample.v) : '--'}</strong>
-          {maxSample ? `（${maxSample.name || maxSample.id}）` : ''}
-        </span>
-        <span>
-          最低<strong>{minSample ? formatValue(minSample.v) : '--'}</strong>
-          {minSample ? `（${minSample.name || minSample.id}）` : ''}
-        </span>
-        <span>
-          超阈点位<strong className={overCount ? 'heatmap-bad' : ''}>{overCount} 个</strong>
-        </span>
-        <span>读数更新 {latestTs ? formatAge(new Date(latestTs).toISOString()) : '--'}</span>
-      </div>
+      <div className="heatmap-canvas">
+        <div className="slam-floor heatmap-floor">
+          <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${area.name}${modeMeta.label}CAD平面图`}>
+            <defs>
+              <clipPath id="warehouse-floor-clip">
+                <rect x={floorX} y={floorY} width={width} height={height} rx="0.08" />
+              </clipPath>
+              <pattern id="bay-shelf-grid" width="0.32" height="0.48" patternUnits="userSpaceOnUse">
+                <path d="M 0 0 L 0.32 0 M 0.16 0 L 0.16 0.48" fill="none" stroke="rgba(214, 188, 138, 0.28)" strokeWidth="0.018" />
+              </pattern>
+              <linearGradient id="aisle-glow" x1="0" x2="1">
+                <stop offset="0" stopColor="rgba(91, 201, 255, 0.02)" />
+                <stop offset="0.5" stopColor="rgba(91, 201, 255, 0.13)" />
+                <stop offset="1" stopColor="rgba(91, 201, 255, 0.02)" />
+              </linearGradient>
+            </defs>
 
-      <div className="slam-floor heatmap-floor">
-        <svg viewBox={`0 0 ${vbW} ${vbH}`} preserveAspectRatio="xMidYMid meet">
-          {/* 库房轮廓 */}
-          <rect x={PADDING} y={PADDING} width={w} height={h} rx={0.12}
-            fill="rgba(9,32,72,0.9)" stroke="rgba(101,200,255,0.4)" strokeWidth={0.07} />
+            {/* 基础底图与热力位图共用同一裁切边界，热色不会溢出仓间矩形。 */}
+            <rect x={floorX} y={floorY} width={width} height={height} rx="0.08" fill="#07162d" />
+            {heatmapUrl && (
+              <image
+                href={heatmapUrl}
+                x={floorX}
+                y={floorY}
+                width={width}
+                height={height}
+                opacity="0.68"
+                preserveAspectRatio="none"
+                clipPath="url(#warehouse-floor-clip)"
+              />
+            )}
 
-          {/* 热力层 */}
-          {heatmapUrl && (
-            <image href={heatmapUrl} x={PADDING} y={PADDING} width={w} height={h}
-              preserveAspectRatio="none" opacity={0.62} />
-          )}
+            <g clipPath="url(#warehouse-floor-clip)">
+              {Array.from({ length: Math.floor(width / 1.5) + 1 }, (_, index) => (
+                <line key={`grid-x-${index}`} x1={floorX + index * 1.5} y1={floorY} x2={floorX + index * 1.5} y2={floorY + height}
+                  stroke="rgba(132, 199, 255, 0.085)" strokeWidth="0.018" />
+              ))}
+              {Array.from({ length: Math.floor(height / 1.5) + 1 }, (_, index) => (
+                <line key={`grid-y-${index}`} x1={floorX} y1={floorY + index * 1.5} x2={floorX + width} y2={floorY + index * 1.5}
+                  stroke="rgba(132, 199, 255, 0.085)" strokeWidth="0.018" />
+              ))}
 
-          {/* 网格线 */}
-          {Array.from({ length: Math.floor(w / gridStep) + 1 }, (_, i) => (
-            <line key={`gv${i}`} x1={PADDING + i * gridStep} y1={PADDING} x2={PADDING + i * gridStep} y2={PADDING + h}
-              stroke="rgba(101,200,255,0.1)" strokeWidth={0.03} />
-          ))}
-          {Array.from({ length: Math.floor(h / gridStep) + 1 }, (_, i) => (
-            <line key={`gh${i}`} x1={PADDING} y1={PADDING + i * gridStep} x2={PADDING + w} y2={PADDING + i * gridStep}
-              stroke="rgba(101,200,255,0.1)" strokeWidth={0.03} />
-          ))}
+              <rect x={fx(aisleStart)} y={fy(aisleTop)} width={aisleEnd - aisleStart} height={centerAisleHeight}
+                fill="url(#aisle-glow)" stroke="rgba(136, 214, 255, 0.3)" strokeWidth="0.028" />
+              <line x1={fx(aisleStart)} y1={fy((aisleTop + aisleBottom) / 2)} x2={fx(aisleEnd)} y2={fy((aisleTop + aisleBottom) / 2)}
+                stroke="rgba(209, 239, 255, 0.35)" strokeWidth="0.028" strokeDasharray="0.18 0.18" />
 
-          {/* 中央走道 */}
-          {aisleMax > aisleMin && (
-            <rect x={aisleX} y={fy(aisleMax)} width={aisleW} height={aisleMax - aisleMin}
-              fill="rgba(101,200,255,0.05)" stroke="rgba(101,200,255,0.16)" strokeWidth={0.03} rx={0.08} />
-          )}
-          {aisleMax > aisleMin && (
-            <text x={aisleX + aisleW / 2} y={fy(aisleMid) + 0.12} textAnchor="middle"
-              fontSize={0.42} fill="rgba(205,231,255,0.5)">中 央 走 道</text>
-          )}
+              {columnXs.filter((x) => x > 0 && x < width).map((x, index) => (
+                <g key={`column-${index}`}>
+                  <rect x={fx(x) - 0.17} y={floorY + 0.05} width="0.34" height="0.34" fill="#0b1a32" stroke="rgba(180, 224, 255, 0.46)" strokeWidth="0.035" />
+                  <rect x={fx(x) - 0.17} y={floorY + height - 0.39} width="0.34" height="0.34" fill="#0b1a32" stroke="rgba(180, 224, 255, 0.46)" strokeWidth="0.035" />
+                </g>
+              ))}
 
-          {/* 门：右短边进仓侧 */}
-          <g>
-            <rect x={PADDING + w - 0.08} y={fy(aisleMid) - 0.9} width={0.4} height={1.8} rx={0.08}
-              fill="rgba(47,125,255,0.2)" stroke="#65c8ff" strokeWidth={0.05} />
-            <text x={PADDING + w + 0.18} y={fy(aisleMid) - 1.1} textAnchor="middle"
-              fontSize={0.38} fill="#8fd4ff">门</text>
-          </g>
+              {mappedPoints.map((point) => {
+                const bay = getBayGeometry(point);
+                const sample = sampleByPointId.get(point.id);
+                const relativeValue = sample ? (sample.v - domain[0]) / (domain[1] - domain[0] || 1) : null;
+                const [red, green, blue] = relativeValue === null ? [220, 193, 145] : colorAt(relativeValue);
+                const isAbnormal = sample && sample.v > modeMeta.limit;
+                const bayCode = point.id.replace(/^A-1-/, '');
 
-          {/* 垛位（半透明，透出底层热力） */}
-          {points.map((pt) => {
-            const { bayX, bayY } = bayGeom(pt);
-            const rd = readingMap[pt.id];
-            const v = rd ? num(rd[modeMeta.key]) : null;
-            const abn = v !== null && v > modeMeta.limit;
-            return (
-              <rect key={`bay-${pt.id}`}
-                x={bayX} y={bayY} width={BAY_W} height={BAY_D} rx={0.08}
-                fill={abn ? 'rgba(248,113,113,0.18)' : 'rgba(217,189,147,0.14)'}
-                stroke={abn ? 'rgba(248,113,113,0.9)' : 'rgba(217,189,147,0.5)'}
-                strokeWidth={abn ? 0.09 : 0.045} />
-            );
-          })}
+                return (
+                  <g key={`bay-${point.id}`}>
+                    <rect x={bay.x} y={bay.y} width={BAY_W} height={BAY_D} rx="0.045"
+                      fill={sample ? `rgba(${red}, ${green}, ${blue}, 0.17)` : 'rgba(212, 186, 139, 0.10)'}
+                      stroke={isAbnormal ? 'rgba(255, 110, 122, 0.98)' : 'rgba(224, 203, 165, 0.62)'}
+                      strokeWidth={isAbnormal ? '0.07' : '0.038'} />
+                    <rect x={bay.x + 0.06} y={bay.y + 0.06} width={BAY_W - 0.12} height={BAY_D - 0.12}
+                      fill="url(#bay-shelf-grid)" stroke="rgba(224, 203, 165, 0.18)" strokeWidth="0.018" />
+                    <text x={bay.x + BAY_W / 2} y={bay.y + BAY_D / 2 + 0.22} textAnchor="middle" fontSize="0.26" fontWeight="700"
+                      fill="rgba(235, 222, 198, 0.84)">{bayCode}</text>
+                  </g>
+                );
+              })}
 
-          {/* 采样点标记 + 读数标签（标签放在远离走道一侧，避免与走道文字/对排标签相撞） */}
-          {points.map((pt) => {
-            const rd = readingMap[pt.id];
-            const v = rd ? num(rd[modeMeta.key]) : null;
-            const abn = v !== null && v > modeMeta.limit;
-            const cx = fx(Number(pt.x) || 0);
-            const cy = fy(Number(pt.y) || 0);
-            const isTop = (Number(pt.y) || 0) >= aisleMid;
-            const nameY = isTop ? cy - 0.62 : cy + 0.5;
-            const valueY = isTop ? cy - 0.26 : cy + 0.86;
-            return (
-              <g key={`pt-${pt.id}`}>
-                <circle cx={cx} cy={cy} r={0.2}
-                  fill="rgba(47,125,255,0.4)" stroke="#fff" strokeWidth={0.05} />
-                <text x={cx} y={nameY} textAnchor="middle"
-                  fontSize={0.3} fontWeight="600"
-                  fill={abn ? '#f87171' : '#e8f3ff'}
-                  stroke="rgba(9,32,72,0.85)" strokeWidth={0.025} paintOrder="stroke">
-                  {pt.name || pt.id}
-                </text>
-                <text x={cx} y={valueY} textAnchor="middle"
-                  fontSize={0.32} fontWeight="700"
-                  fill={abn ? '#f87171' : '#e8f3ff'}
-                  stroke="rgba(9,32,72,0.85)" strokeWidth={0.025} paintOrder="stroke">
-                  {v === null ? '--' : formatValue(v)}
-                </text>
+              <g aria-hidden="true">
+                <rect x={floorX + width - 0.12} y={fy((aisleTop + aisleBottom) / 2) - 0.82} width="0.42" height="1.64" rx="0.04"
+                  fill="rgba(37, 124, 202, 0.24)" stroke="rgba(122, 215, 255, 0.9)" strokeWidth="0.055" />
+                <path d={`M ${floorX + width - 0.12} ${fy((aisleTop + aisleBottom) / 2) - 0.82} A 0.82 0.82 0 0 0 ${floorX + width - 0.94} ${fy((aisleTop + aisleBottom) / 2)}`}
+                  fill="none" stroke="rgba(122, 215, 255, 0.62)" strokeWidth="0.038" />
+                <text x={floorX + width - 0.4} y={fy((aisleTop + aisleBottom) / 2) + 0.06} textAnchor="middle" fontSize="0.22" fill="#bfeaff">入口</text>
               </g>
-            );
-          })}
 
-          {!heatmapUrl && (
-            <text x={PADDING + w / 2} y={PADDING + h / 2} textAnchor="middle" fontSize={0.5}
-              fill="rgba(205,231,255,0.7)">
-              {isStale
-                ? `暂无实时巡检读数，最近一次 ${latestAge}（可能为演示/历史数据）`
-                : '暂无巡检读数，等待机器狗进仓采集后生成热力场'}
-            </text>
+              {[3.1, 8.1, 14.1].filter((x) => x < width - 0.4).map((x, index) => (
+                <g key={`safety-${index}`}>
+                  <rect x={fx(x)} y={floorY + 0.42} width="0.28" height="0.38" rx="0.025" fill="#d94351" />
+                  <text x={fx(x) + 0.14} y={floorY + 0.69} textAnchor="middle" fontSize="0.19" fontWeight="700" fill="#fff">消</text>
+                </g>
+              ))}
+
+              {stackSamples.map((sample) => {
+                const x = fx(sample.x);
+                const y = fy(sample.y);
+                const selected = selectedPointId === sample.id;
+                const [red, green, blue] = colorAt((sample.v - domain[0]) / (domain[1] - domain[0] || 1));
+                const north = sample.y >= (southRowY + northRowY) / 2;
+                const calloutY = north ? y - 0.58 : y + 0.76;
+                const calloutX = Math.min(Math.max(x, floorX + 1.05), floorX + width - 1.05);
+
+                return (
+                  <g
+                    key={`sample-${sample.id}`}
+                    className="heatmap-sample"
+                    role="button"
+                    tabIndex="0"
+                    aria-label={`${sample.name}，${formatValue(sample.v)}`}
+                    onClick={() => setSelectedPointId(selected ? null : sample.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedPointId(selected ? null : sample.id);
+                      }
+                    }}
+                  >
+                    {selected && <circle cx={x} cy={y} r="0.34" fill={`rgba(${red}, ${green}, ${blue}, 0.22)`} />}
+                    <circle cx={x} cy={y} r={selected ? '0.16' : '0.12'} fill={`rgb(${red}, ${green}, ${blue})`} stroke="#fff" strokeWidth="0.055" />
+                    {selected && (
+                      <g>
+                        <rect x={calloutX - 0.78} y={calloutY - 0.31} width="1.56" height="0.48" rx="0.08" fill="rgba(3, 12, 28, 0.9)" stroke={`rgba(${red}, ${green}, ${blue}, 0.72)`} strokeWidth="0.03" />
+                        <text x={calloutX} y={calloutY} textAnchor="middle" fontSize="0.21" fontWeight="700" fill="#f4f9ff">{sample.name} · {formatValue(sample.v)}</text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+
+            <rect x={floorX} y={floorY} width={width} height={height} rx="0.08" fill="none" stroke="rgba(183, 229, 255, 0.74)" strokeWidth="0.075" />
+            <text x={floorX + width / 2} y={fy((aisleTop + aisleBottom) / 2) + 0.1} textAnchor="middle" fontSize="0.26" letterSpacing="0.12" fill="rgba(210, 239, 255, 0.7)">中 央 走 道</text>
+
+            {!heatmapUrl && (
+              <g>
+                <rect x={floorX + width / 2 - 2.35} y={floorY + height / 2 - 0.45} width="4.7" height="0.9" rx="0.1" fill="rgba(3, 12, 28, 0.82)" stroke="rgba(127, 204, 255, 0.34)" strokeWidth="0.035" />
+                <text x={floorX + width / 2} y={floorY + height / 2 - 0.08} textAnchor="middle" fontSize="0.28" fill="#d8edff">等待至少 2 个已标定的新鲜点位读数</text>
+                <text x={floorX + width / 2} y={floorY + height / 2 + 0.2} textAnchor="middle" fontSize="0.2" fill="rgba(216, 237, 255, 0.58)">未匹配或越界的巡检数据不会投射到此平面图</text>
+              </g>
+            )}
+          </svg>
+        </div>
+
+        <aside className="heatmap-focus-card" aria-live="polite">
+          <span className="heatmap-focus-label">{selectedSample ? '当前选中点位' : '点位数据说明'}</span>
+          {selectedSample ? (
+            <>
+              <strong>{selectedSample.name}</strong>
+              <b>{formatValue(selectedSample.v)}</b>
+              <span>采集时间 {formatAge(selectedSample.ts)}</span>
+              <button type="button" onClick={() => setSelectedPointId(null)}>取消选择</button>
+            </>
+          ) : (
+            <>
+              <strong>点击图中测点查看读数</strong>
+              <span>热力场由已标定点位插值生成；库外、未匹配和过期数据不参与显示。</span>
+            </>
           )}
-        </svg>
+        </aside>
       </div>
 
-      <div className="heatmap-note">
-        热力图根据巡检点位坐标与最新读数进行 IDW 空间插值，用于快速定位局部高{modeMeta.metric}区域；色带范围随当前读数自适应，每 30 秒刷新。
-      </div>
-    </div>
+      <footer className="heatmap-footer">
+        <span>颜色表示相对分布，实测值以点位读数为准。</span>
+        <span>{isStale ? `最新标定读数已过期（${formatAge(new Date(latestTimestamp).toISOString())}）` : '每 30 秒自动刷新'}</span>
+      </footer>
+    </section>
   );
 };
 

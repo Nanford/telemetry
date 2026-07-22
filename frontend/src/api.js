@@ -11,7 +11,9 @@ import {
   mockInsights,
   mockHealth,
   mockSlamPoints,
-  mockSlamReadings
+  mockSlamReadings,
+  mockSlamLatest,
+  mockSlamTrail
 } from './data/mock.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api/v1';
@@ -172,7 +174,10 @@ export const getSlamPoints = withMockFallback(
 
 export const getSlamLatest = (_, opts) => fetchJson('slam/latest', opts);
 
-export const getSlamLive = (_, opts) => fetchJson('slam/live', opts);
+export const getSlamLive = withMockFallback(
+  (_, opts) => fetchJson('slam/live', opts),
+  { latest: mockSlamLatest, trail: mockSlamTrail }
+);
 
 export const getSlamTrail = (params = {}, opts) => {
   const query = new URLSearchParams(params).toString();
@@ -183,6 +188,13 @@ export const getSlamReadings = withMockFallback(
   (_, opts) => fetchJson('slam/readings', opts),
   mockSlamReadings
 );
+
+// 原始温度场读数（fix=1 带温湿度的原始定位点，不依赖 point_id）。
+// 无 mock 兜底：后端不可达时直接抛错，由调用方降级处理。
+export const getSlamField = (params = {}, opts) => {
+  const query = new URLSearchParams(params).toString();
+  return fetchJson(`slam/field${query ? `?${query}` : ''}`, opts);
+};
 
 export const createSlamStream = () => new EventSource(apiUrl('slam/stream'));
 

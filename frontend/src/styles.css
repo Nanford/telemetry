@@ -1909,62 +1909,632 @@ body::after {
   }
 }
 
-/* 仓间温湿度平面分析（热力图） */
+/* 仓间温湿度平面分析（CAD 底图 + 已标定点位热力场） */
 .heatmap-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  color: #e8f3ff;
+  background: #07152a;
+  border: 1px solid rgba(101, 200, 255, 0.3);
+  box-shadow: 0 24px 50px rgba(14, 43, 83, 0.24);
 }
 
-.heatmap-toolbar {
-  display: flex;
+.heatmap-header {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(260px, 1fr);
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 24px;
+  min-height: 112px;
+  padding: 22px 26px;
+  background:
+    linear-gradient(90deg, rgba(3, 18, 38, 0.98), rgba(6, 29, 59, 0.9)),
+    #07152a;
+  border-bottom: 1px solid rgba(101, 200, 255, 0.25);
+}
+
+.heatmap-title-group {
+  min-width: 0;
+}
+
+.heatmap-eyebrow,
+.heatmap-focus-label {
+  display: block;
+  margin-bottom: 5px;
+  color: #65c8ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.heatmap-card .card-title {
+  color: #f2f8ff;
+  font-family: 'Oxanium', 'Microsoft YaHei', sans-serif;
+  font-size: 20px;
+  letter-spacing: 0.025em;
+}
+
+.heatmap-card .card-subtitle {
+  margin-top: 6px;
+  color: rgba(210, 235, 255, 0.64);
+}
+
+.heatmap-mode-switch {
+  display: inline-flex;
+  padding: 4px;
+  border: 1px solid rgba(101, 200, 255, 0.36);
+  border-radius: 10px;
+  background: rgba(2, 14, 31, 0.65);
+}
+
+.heatmap-mode-switch button {
+  min-width: 96px;
+  padding: 9px 12px;
+  color: rgba(223, 240, 255, 0.74);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.heatmap-mode-switch button:hover,
+.heatmap-mode-switch button:focus-visible {
+  color: #fff;
+  outline: none;
+  background: rgba(101, 200, 255, 0.16);
+}
+
+.heatmap-mode-switch button.active {
+  color: #fff;
+  background: linear-gradient(135deg, #2f7dff, #1974d4);
+  box-shadow: 0 5px 12px rgba(15, 104, 230, 0.26);
+}
+
+.heatmap-header-right {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex-direction: column;
+  gap: 11px;
 }
 
 .heatmap-legend {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
+  color: rgba(222, 239, 255, 0.78);
+  font-family: 'Oxanium', 'Microsoft YaHei', sans-serif;
+  font-size: 11px;
 }
 
 .heatmap-legend-bar {
-  width: 150px;
-  height: 10px;
+  width: min(14vw, 180px);
+  min-width: 108px;
+  height: 8px;
   border-radius: 999px;
-  box-shadow: inset 0 0 0 1px rgba(11, 27, 58, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
-.heatmap-stats {
+.heatmap-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(206, 239, 221, 0.88);
+  font-size: 11px;
+}
+
+.heatmap-live-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #44d89c;
+  box-shadow: 0 0 0 3px rgba(68, 216, 156, 0.12);
+}
+
+.heatmap-live-status.stale {
+  color: #ffd089;
+}
+
+.heatmap-live-status.stale i {
+  background: #ffac58;
+  box-shadow: 0 0 0 3px rgba(255, 172, 88, 0.13);
+}
+
+.heatmap-stat-strip {
   display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 26px;
+  min-height: 52px;
+  padding: 11px 26px;
+  color: rgba(211, 232, 251, 0.68);
   font-size: 12px;
-  color: var(--muted);
-  align-items: baseline;
+  background: rgba(4, 21, 44, 0.88);
+  border-bottom: 1px solid rgba(101, 200, 255, 0.16);
 }
 
-.heatmap-stats strong {
-  color: var(--text);
-  font-family: 'Oxanium', sans-serif;
+.heatmap-stat-strip strong {
+  margin-left: 5px;
+  color: #f2f8ff;
+  font-family: 'Oxanium', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
-  margin-left: 4px;
 }
 
-.heatmap-stats .heatmap-bad {
-  color: var(--alert);
+.heatmap-stat-strip .heatmap-bad {
+  color: #ff7382;
+}
+
+.heatmap-source-note {
+  margin-left: auto;
+  color: rgba(126, 210, 255, 0.72);
+}
+
+.heatmap-canvas {
+  position: relative;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 52% 24%, rgba(49, 135, 225, 0.16), transparent 46%),
+    #061326;
 }
 
 .heatmap-floor {
   width: 100%;
-  max-width: 1080px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
+  border-radius: 10px;
+  border-color: rgba(114, 209, 255, 0.42);
+  background: #061326;
+  box-shadow: inset 0 0 0 1px rgba(24, 85, 139, 0.18), 0 12px 28px rgba(0, 8, 24, 0.34);
 }
 
-.heatmap-note {
+.heatmap-floor svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.heatmap-sample {
+  cursor: pointer;
+}
+
+.heatmap-sample:focus {
+  outline: none;
+}
+
+.heatmap-focus-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  min-height: 0;
+  margin-top: 14px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(13, 43, 79, 0.94), rgba(5, 24, 50, 0.96));
+  border: 1px solid rgba(107, 206, 255, 0.3);
+  border-radius: 10px;
+  box-shadow: 0 10px 22px rgba(0, 7, 20, 0.24);
+}
+
+.heatmap-focus-card strong {
+  color: #e9f5ff;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.heatmap-focus-card .heatmap-focus-label {
+  width: 100%;
+  margin: 0;
+}
+
+.heatmap-focus-card b {
+  color: #65c8ff;
+  font-family: 'Oxanium', 'Microsoft YaHei', sans-serif;
+  font-size: 26px;
+}
+
+.heatmap-focus-card > span:not(.heatmap-focus-label) {
+  color: rgba(210, 235, 255, 0.68);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.heatmap-focus-card button {
+  justify-self: start;
+  padding: 6px 0;
+  color: #8fd9ff;
+  font: inherit;
+  font-size: 11px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid rgba(143, 217, 255, 0.45);
+  cursor: pointer;
+}
+
+.heatmap-focus-card button:hover,
+.heatmap-focus-card button:focus-visible {
+  color: #fff;
+  outline: none;
+  border-bottom-color: #fff;
+}
+
+.heatmap-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 26px;
+  color: rgba(196, 224, 247, 0.58);
+  font-size: 11px;
+  line-height: 1.6;
+  background: rgba(3, 17, 35, 0.95);
+  border-top: 1px solid rgba(101, 200, 255, 0.14);
+}
+
+@media (max-width: 1080px) {
+  .heatmap-header {
+    grid-template-columns: 1fr auto;
+  }
+
+  .heatmap-header-right {
+    grid-column: 1 / -1;
+    align-items: flex-start;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .heatmap-canvas {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .heatmap-focus-card {
+    min-height: 0;
+  }
+
+}
+
+@media (max-width: 680px) {
+  .heatmap-header {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 15px;
+    padding: 18px;
+  }
+
+  .heatmap-header-right {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .heatmap-mode-switch {
+    width: 100%;
+  }
+
+  .heatmap-mode-switch button {
+    flex: 1;
+  }
+
+  .heatmap-stat-strip {
+    gap: 10px 18px;
+    flex-wrap: wrap;
+    padding: 12px 18px;
+  }
+
+  .heatmap-source-note {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .heatmap-canvas {
+    padding: 12px;
+  }
+
+  .heatmap-focus-card {
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .heatmap-floor {
+    overflow-x: auto;
+  }
+
+  .heatmap-floor svg {
+    min-width: 720px;
+  }
+
+  .heatmap-footer {
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 18px;
+  }
+}
+
+/* 巡检地图与热力图共享深色 CAD 视觉，但保留轨迹和设备图层的独立状态色。 */
+.inspection-map-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  color: #e8f3ff;
+  background: #07152a;
+  border: 1px solid rgba(101, 200, 255, 0.3);
+  box-shadow: 0 24px 50px rgba(14, 43, 83, 0.24);
+}
+
+.inspection-map-header {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto minmax(245px, 1fr);
+  align-items: center;
+  gap: 24px;
+  min-height: 112px;
+  padding: 22px 26px;
+  background: linear-gradient(90deg, rgba(3, 18, 38, 0.98), rgba(6, 29, 59, 0.9));
+  border-bottom: 1px solid rgba(101, 200, 255, 0.25);
+}
+
+.inspection-map-title-group { min-width: 0; }
+
+.inspection-map-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: #65c8ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.inspection-map-card .card-title {
+  color: #f2f8ff;
+  font-family: 'Oxanium', 'Microsoft YaHei', sans-serif;
+  font-size: 20px;
+  letter-spacing: 0.025em;
+}
+
+.inspection-map-card .card-subtitle {
+  margin-top: 6px;
+  color: rgba(210, 235, 255, 0.64);
+}
+
+.inspection-map-controls {
+  display: inline-flex;
+  padding: 4px;
+  border: 1px solid rgba(101, 200, 255, 0.36);
+  border-radius: 10px;
+  background: rgba(2, 14, 31, 0.65);
+}
+
+.inspection-map-controls button {
+  min-width: 92px;
+  padding: 9px 12px;
+  color: rgba(223, 240, 255, 0.74);
+  font: inherit;
   font-size: 12px;
-  color: var(--muted);
+  font-weight: 700;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.inspection-map-controls button:hover,
+.inspection-map-controls button:focus-visible {
+  color: #fff;
+  outline: none;
+  background: rgba(101, 200, 255, 0.16);
+}
+
+.inspection-map-controls button.active {
+  color: #fff;
+  background: linear-gradient(135deg, #2f7dff, #1974d4);
+  box-shadow: 0 5px 12px rgba(15, 104, 230, 0.26);
+}
+
+.inspection-map-header-right {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.inspection-map-live-status,
+.inspection-map-status-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(206, 239, 221, 0.88);
+  font-size: 11px;
+}
+
+.inspection-map-live-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #44d89c;
+  box-shadow: 0 0 0 3px rgba(68, 216, 156, 0.12);
+}
+
+.inspection-map-live-status.stale { color: #ffd089; }
+.inspection-map-live-status.stale i {
+  background: #ffac58;
+  box-shadow: 0 0 0 3px rgba(255, 172, 88, 0.13);
+}
+
+.inspection-map-status-note { color: rgba(151, 205, 241, 0.62); }
+
+.inspection-map-error {
+  margin: 14px 20px 0;
+  padding: 11px 14px;
+  color: #ffb5bd;
+  font-size: 12px;
+  background: rgba(217, 74, 95, 0.12);
+  border: 1px solid rgba(255, 115, 130, 0.3);
+  border-radius: 8px;
+}
+
+.inspection-map-stat-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 26px;
+  min-height: 52px;
+  padding: 11px 26px;
+  color: rgba(211, 232, 251, 0.68);
+  font-size: 12px;
+  background: rgba(4, 21, 44, 0.88);
+  border-bottom: 1px solid rgba(101, 200, 255, 0.16);
+}
+
+.inspection-map-stat-strip strong {
+  margin-left: 5px;
+  color: #f2f8ff;
+  font-family: 'Oxanium', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+}
+
+.inspection-map-stat-strip .inspection-map-bad,
+.inspection-map-stat-strip .inspection-map-bad strong { color: #ff8c99; }
+
+.inspection-map-source-note {
+  margin-left: auto;
+  color: rgba(126, 210, 255, 0.72);
+}
+
+.inspection-map-canvas {
+  padding: 20px;
+  background: radial-gradient(circle at 52% 24%, rgba(49, 135, 225, 0.16), transparent 46%), #061326;
+}
+
+.inspection-map-floor {
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid rgba(114, 209, 255, 0.42);
+  border-radius: 10px;
+  background: #061326;
+  box-shadow: inset 0 0 0 1px rgba(24, 85, 139, 0.18), 0 12px 28px rgba(0, 8, 24, 0.34);
+}
+
+.inspection-map-floor svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.inspection-map-point { cursor: pointer; }
+.inspection-map-point:focus { outline: none; }
+
+.inspection-map-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px 20px;
+  padding: 13px 4px 0;
+  color: rgba(206, 233, 252, 0.68);
+  font-size: 11px;
+}
+
+.inspection-map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.inspection-map-legend i {
+  display: inline-block;
+  width: 15px;
+  height: 8px;
+}
+
+.inspection-map-legend .legend-path { border-top: 2px solid #50d4b1; }
+.inspection-map-legend .legend-device,
+.inspection-map-legend .legend-point,
+.inspection-map-legend .legend-alert {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.inspection-map-legend .legend-device { background: #50d4b1; box-shadow: 0 0 0 3px rgba(80, 212, 177, 0.18); }
+.inspection-map-legend .legend-point { background: #2f7dff; }
+.inspection-map-legend .legend-alert { background: #ff7382; }
+
+.inspection-map-detail {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-height: 62px;
+  margin-top: 14px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(13, 43, 79, 0.94), rgba(5, 24, 50, 0.96));
+  border: 1px solid rgba(107, 206, 255, 0.3);
+  border-radius: 10px;
+  box-shadow: 0 10px 22px rgba(0, 7, 20, 0.24);
+}
+
+.inspection-map-detail > span {
+  width: 100%;
+  color: #65c8ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.inspection-map-detail strong { color: #e9f5ff; font-size: 13px; }
+.inspection-map-detail b {
+  color: #91f2d0;
+  font-family: 'Oxanium', 'Microsoft YaHei', sans-serif;
+  font-size: 20px;
+}
+.inspection-map-detail b em { color: rgba(206, 233, 252, 0.45); font-style: normal; }
+.inspection-map-detail small { color: rgba(210, 235, 255, 0.66); font-size: 11px; }
+
+.inspection-map-detail button {
+  padding: 6px 0;
+  color: #8fd9ff;
+  font: inherit;
+  font-size: 11px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid rgba(143, 217, 255, 0.45);
+  cursor: pointer;
+}
+
+.inspection-map-footer {
+  padding: 12px 26px;
+  color: rgba(196, 224, 247, 0.58);
+  font-size: 11px;
+  line-height: 1.6;
+  background: rgba(3, 17, 35, 0.95);
+  border-top: 1px solid rgba(101, 200, 255, 0.14);
+}
+
+@media (max-width: 1080px) {
+  .inspection-map-header { grid-template-columns: 1fr auto; }
+  .inspection-map-header-right {
+    grid-column: 1 / -1;
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 680px) {
+  .inspection-map-header {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 15px;
+    padding: 18px;
+  }
+  .inspection-map-controls { width: 100%; }
+  .inspection-map-controls button { flex: 1; }
+  .inspection-map-stat-strip,
+  .inspection-map-canvas { padding-right: 18px; padding-left: 18px; }
+  .inspection-map-source-note { width: 100%; margin-left: 0; }
+  .inspection-map-detail { display: grid; grid-template-columns: 1fr; padding: 14px; }
 }

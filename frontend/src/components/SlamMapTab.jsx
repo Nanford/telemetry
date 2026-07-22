@@ -1,41 +1,52 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { createSlamStream, getSlamLive, getSlamPoints } from '../api.js';
-import {
-  computeInspectionMapLayout,
-  computeMapGridStep,
-  formatMetric
-} from '../lib/inspection.js';
+/**
+ * 仓间巡检地图。
+ *
+ * 平面图只投射当前仓间边界内的已配置点位、轨迹和设备位置。越界或无法定位的
+ * 原始上报不会扩张画布，也不会被推测到某个库位，确保巡检视图与实际仓间保持一致。
+ */
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createSlamStream, getSlamLive, getSlamPoints, getSlamReadings } from '../api.js';
+import { computeMapGridStep, formatMetric } from '../lib/inspection.js';
 
 const POLL_MS = 5000;
-const PADDING = 1.5;
 const TRAIL_WINDOW_MS = 60 * 60 * 1000;
 const TRAIL_LIMIT = 2000;
-// 告警阈值(与采集端/仿真一致)：超过则该垛位读数标红、垛位描红框。
+const FRESH_WINDOW_MS = 30 * 60 * 1000;
+const MAP_PADDING = 0.75;
 const TEMP_LIMIT = 32;
 const RH_LIMIT = 65;
-// 垛位矩形几何：采集点在走道侧，矩形向远离走道方向延伸（贴近平面图成对短垛）。
-const BAY_W = 1.28; // 宽约列距 1.5m 的 85%
-const BAY_D = 3.2;  // 进深
-const BAY_OFF = 0.25;
+const BAY_W = 1.28;
+const BAY_D = 3.2;
+const BAY_OFFSET = 0.25;
 
-function formatAge(ts) {
-  if (!ts) return '--';
-  const sec = Math.round((Date.now() - new Date(ts).getTime()) / 1000);
-  if (sec < 60) return `${sec}s 前`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m 前`;
-  return `${Math.floor(sec / 3600)}h 前`;
-}
-
-const timeMs = (ts) => {
-  const parsed = new Date(ts).getTime();
-  return Number.isNaN(parsed) ? Date.now() : parsed;
+const num = (value) => {
+  const result = Number(value);
+  return Number.isFinite(result) ? result : null;
 };
 
-const pruneTrail = (items) => {
+const timeMs = (timestamp) => {
+  const value = new Date(timestamp).getTime();
+  return Number.isFinite(value) ? value : 0;
+};
+
+const formatAge = (timestamp) => {
+  const time = timeMs(timestamp);
+  if (!time) return '--';
+  const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
+  if (seconds < 60) return `${seconds}s 前`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m 前`;
+  return `${Math.floor(seconds / 3600)}h 前`;
+};
+
+const pruneTrail = (items = []) => {
   const cutoff = Date.now() - TRAIL_WINDOW_MS;
-  return items
-    .filter((item) => timeMs(item.ts) >= cutoff)
-    .slice(-TRAIL_LIMIT);
+  return items.filter((item) => timeMs(item.ts) >= cutoff).slice(-TRAIL_LIMIT);
+};
+
+const withinBounds = (x, y, bounds) => {
+  const px = num(x);
+  const py = num(y);
+  return px !== null && py !== null && px >= bounds.minX && px <= bounds.maxX && py >= bounds.minY && py <= bounds.maxY;
 };
 
 const SlamMapTab = () => {
@@ -45,374 +56,353 @@ const SlamMapTab = () => {
   const [trail, setTrail] = useState([]);
   const [readings, setReadings] = useState([]);
   const [streamOnline, setStreamOnline] = useState(false);
+  const [showTrail, setShowTrail] = useState(true);
+  const [showReadings, setShowReadings] = useState(true);
+  const [selectedPointId, setSelectedPointId] = useState(null);
   const [error, setError] = useState('');
-  const pollRef = useRef(null);
-  const streamRef = useRef(null);
   const streamOnlineRef = useRef(false);
 
-  const updateStreamOnline = (online) => {
+  const setStreamState = (online) => {
     streamOnlineRef.current = online;
     setStreamOnline(online);
   };
 
   const applyLivePoint = (point) => {
-    if (!point?.device_id || point.pos_x == null || point.pos_y == null) return;
+    if (!point?.device_id || num(point.pos_x) === null || num(point.pos_y) === null) return;
 
-    setDevices((prev) => {
-      const next = new Map(prev.map((item) => [item.device_id, item]));
+    setDevices((previous) => {
+      const next = new Map(previous.map((item) => [item.device_id, item]));
       const current = next.get(point.device_id);
-      if (!current || timeMs(point.ts) >= timeMs(current.ts)) {
-        next.set(point.device_id, point);
-      }
+      if (!current || timeMs(point.ts) >= timeMs(current.ts)) next.set(point.device_id, point);
       return Array.from(next.values());
     });
+    setTrail((previous) => pruneTrail([...previous, point]));
 
-    setTrail((prev) => pruneTrail([...prev, point]));
-
-    // Point readings are derived from live MQTT samples when the robot reports a checkpoint.
+    // 仅在巡检设备明确回报点位编号时，将读数写入该已标定点位。
     if (point.point_id && (point.temp_c != null || point.rh != null)) {
-      setReadings((prev) => {
-        const next = new Map(prev.map((item) => [item.point_id, item]));
-        next.set(point.point_id, {
-          point_id: point.point_id,
-          temp_c: point.temp_c,
-          rh: point.rh,
-          ts: point.ts,
-          device_id: point.device_id
-        });
+      setReadings((previous) => {
+        const next = new Map(previous.map((item) => [item.point_id, item]));
+        const current = next.get(point.point_id);
+        if (!current || timeMs(point.ts) >= timeMs(current.ts)) {
+          next.set(point.point_id, {
+            point_id: point.point_id,
+            temp_c: point.temp_c,
+            rh: point.rh,
+            ts: point.ts,
+            device_id: point.device_id
+          });
+        }
         return Array.from(next.values());
       });
     }
   };
 
-  const loadAll = async () => {
-    try {
-      const [ptData, liveData] = await Promise.all([
-        getSlamPoints(),
-        getSlamLive()
-      ]);
-      setArea(ptData.area);
-      setPoints(ptData.points || []);
-      setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
-      setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
-      setError('');
-    } catch (requestError) {
-      setError(requestError.message || '巡检地图加载失败');
-    }
-  };
-
-  const pollDynamic = async () => {
-    if (streamOnlineRef.current) return;
-    try {
-      const liveData = await getSlamLive();
-      setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
-      setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
-      setError('');
-    } catch (requestError) {
-      setError(requestError.message || '巡检位置数据加载失败');
-    }
-  };
-
   useEffect(() => {
-    loadAll();
-    pollRef.current = setInterval(pollDynamic, POLL_MS);
-    streamRef.current = createSlamStream();
+    let cancelled = false;
 
-    streamRef.current.addEventListener('open', () => updateStreamOnline(true));
-    streamRef.current.addEventListener('snapshot', (event) => {
-      const payload = JSON.parse(event.data);
-      updateStreamOnline(true);
-      setDevices(Array.isArray(payload.latest) ? payload.latest : []);
-      setTrail(pruneTrail(Array.isArray(payload.trail) ? payload.trail : []));
+    const load = async () => {
+      try {
+        const [pointData, liveData, readingData] = await Promise.all([
+          getSlamPoints(),
+          getSlamLive(),
+          getSlamReadings()
+        ]);
+        if (cancelled) return;
+        setArea(pointData.area || null);
+        setPoints(Array.isArray(pointData.points) ? pointData.points : []);
+        setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
+        setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
+        setReadings(Array.isArray(readingData) ? readingData : []);
+        setError('');
+      } catch (requestError) {
+        if (!cancelled) setError(requestError.message || '巡检地图加载失败');
+      }
+    };
+
+    const poll = async () => {
+      if (streamOnlineRef.current) return;
+      try {
+        const [liveData, readingData] = await Promise.all([getSlamLive(), getSlamReadings()]);
+        if (cancelled) return;
+        setDevices(Array.isArray(liveData.latest) ? liveData.latest : []);
+        setTrail(pruneTrail(Array.isArray(liveData.trail) ? liveData.trail : []));
+        setReadings(Array.isArray(readingData) ? readingData : []);
+        setError('');
+      } catch (requestError) {
+        if (!cancelled) setError(requestError.message || '巡检位置数据加载失败');
+      }
+    };
+
+    load();
+    const timer = setInterval(poll, POLL_MS);
+    const stream = createSlamStream();
+
+    stream.addEventListener('open', () => setStreamState(true));
+    stream.addEventListener('snapshot', (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        setStreamState(true);
+        setDevices(Array.isArray(payload.latest) ? payload.latest : []);
+        setTrail(pruneTrail(Array.isArray(payload.trail) ? payload.trail : []));
+        if (Array.isArray(payload.readings)) setReadings(payload.readings);
+      } catch {
+        setStreamState(false);
+      }
     });
-    streamRef.current.addEventListener('slam', (event) => {
-      updateStreamOnline(true);
-      applyLivePoint(JSON.parse(event.data));
+    stream.addEventListener('slam', (event) => {
+      try {
+        setStreamState(true);
+        applyLivePoint(JSON.parse(event.data));
+      } catch {
+        setStreamState(false);
+      }
     });
-    streamRef.current.addEventListener('error', () => updateStreamOnline(false));
+    stream.addEventListener('error', () => setStreamState(false));
 
     return () => {
-      clearInterval(pollRef.current);
-      streamRef.current?.close();
+      cancelled = true;
+      clearInterval(timer);
+      stream.close();
     };
   }, []);
 
+  // 画布优先使用已配置仓间尺寸；只有缺失尺寸时，才根据已标定点位推导矩形范围。
+  const bounds = useMemo(() => {
+    const configuredWidth = num(area?.width);
+    const configuredHeight = num(area?.height);
+    if (configuredWidth && configuredHeight) {
+      return { minX: 0, maxX: configuredWidth, minY: 0, maxY: configuredHeight, configured: true };
+    }
+
+    const xs = points.map((point) => num(point.x)).filter((value) => value !== null);
+    const ys = points.map((point) => num(point.y)).filter((value) => value !== null);
+    if (!xs.length || !ys.length) return null;
+    return {
+      minX: Math.min(0, Math.min(...xs) - BAY_W / 2 - 0.8),
+      maxX: Math.max(...xs) + BAY_W / 2 + 0.8,
+      minY: Math.min(0, Math.min(...ys) - BAY_D - BAY_OFFSET - 0.8),
+      maxY: Math.max(...ys) + BAY_D + BAY_OFFSET + 0.8,
+      configured: false
+    };
+  }, [area, points]);
+
+  const mappedPoints = useMemo(() => {
+    if (!bounds) return [];
+    return points.filter((point) => withinBounds(point.x, point.y, bounds));
+  }, [bounds, points]);
+
+  const visibleTrail = useMemo(() => (
+    bounds ? trail.filter((item) => withinBounds(item.pos_x, item.pos_y, bounds)) : []
+  ), [bounds, trail]);
+
+  const visibleDevices = useMemo(() => (
+    bounds ? devices.filter((item) => withinBounds(item.pos_x, item.pos_y, bounds)) : []
+  ), [bounds, devices]);
+
+  const latestReadings = useMemo(() => {
+    const knownIds = new Set(mappedPoints.map((point) => point.id));
+    const result = new Map();
+    readings.forEach((reading) => {
+      if (!knownIds.has(reading.point_id) || !timeMs(reading.ts)) return;
+      const previous = result.get(reading.point_id);
+      if (!previous || timeMs(reading.ts) > timeMs(previous.ts)) result.set(reading.point_id, reading);
+    });
+    return result;
+  }, [mappedPoints, readings]);
+
+  const freshReadings = useMemo(() => {
+    const cutoff = Date.now() - FRESH_WINDOW_MS;
+    return new Map(Array.from(latestReadings.entries()).filter(([, reading]) => timeMs(reading.ts) >= cutoff));
+  }, [latestReadings]);
+
+  const latestTimestamp = useMemo(() => Math.max(0, ...Array.from(latestReadings.values()).map((reading) => timeMs(reading.ts))), [latestReadings]);
+
   if (error && !area) return <div className="page-error">{error}</div>;
-  if (!area) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
+  if (!area || !bounds) return <div className="card" style={{ padding: 24 }}>加载中…</div>;
 
-  const mapLayout = computeInspectionMapLayout({
-    area,
-    points,
-    trail
-  });
-  if (!mapLayout.bounds) {
-    return <div className="card" style={{ padding: 24 }}>暂无可用于绘图的坐标数据</div>;
-  }
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const viewWidth = width + MAP_PADDING * 2;
+  const viewHeight = height + MAP_PADDING * 2;
+  const fx = (x) => x - bounds.minX + MAP_PADDING;
+  const fy = (y) => bounds.maxY - y + MAP_PADDING;
+  const gridStep = computeMapGridStep(Math.max(width, height), 32);
+  const pointXs = mappedPoints.map((point) => num(point.x)).filter((value) => value !== null);
+  const pointYs = mappedPoints.map((point) => num(point.y)).filter((value) => value !== null);
+  const southRowY = pointYs.length ? Math.min(...pointYs) : height * 0.42;
+  const northRowY = pointYs.length ? Math.max(...pointYs) : height * 0.58;
+  const rowMiddle = (southRowY + northRowY) / 2;
+  const aisleStart = pointXs.length ? Math.min(...pointXs) - BAY_W / 2 - 0.22 : 0.7;
+  const aisleEnd = pointXs.length ? Math.max(...pointXs) + BAY_W / 2 + 0.22 : width - 0.7;
+  const trailPath = visibleTrail.map((item) => `${fx(num(item.pos_x))},${fy(num(item.pos_y))}`).join(' ');
+  const abnormalCount = Array.from(freshReadings.values()).filter((reading) => num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT).length;
+  const selectedPoint = mappedPoints.find((point) => point.id === selectedPointId) || null;
+  const selectedReading = selectedPoint ? freshReadings.get(selectedPoint.id) : null;
+  const dimensionLabel = bounds.configured
+    ? `${formatMetric(area.width)}m × ${formatMetric(area.height)}m`
+    : '按已标定点位推导';
+  const isStale = latestTimestamp > 0 && Date.now() - latestTimestamp > FRESH_WINDOW_MS;
 
-  const num = (v) => Number(v) || 0;
-
-  // 垛位与走道几何（上下两排短垛 + 中央走道）；走道中线 = 上下两排采集点 y 的中点。
-  const ptYs = points.map((p) => num(p.y));
-  const aisleMin = ptYs.length ? Math.min(...ptYs) : 0;
-  const aisleMax = ptYs.length ? Math.max(...ptYs) : 0;
-  const aisleMid = (aisleMin + aisleMax) / 2;
-  const ptXs = points.map((p) => num(p.x));
-
-  // 边界兜底：楼层未配置宽高时 bounds 由点位/轨迹推导，上下只剩走道一条窄带，
-  // 必须把垛位进深与标签空间一并纳入，否则两排垛位会被画布边缘裁掉。
-  const base = mapLayout.bounds;
-  const bounds = ptXs.length
-    ? {
-        minX: Math.min(base.minX, Math.min(...ptXs) - BAY_W / 2 - 0.5),
-        maxX: Math.max(base.maxX, Math.max(...ptXs) + BAY_W / 2 + 0.5),
-        minY: Math.min(base.minY, aisleMin - BAY_OFF - BAY_D - 0.9),
-        maxY: Math.max(base.maxY, aisleMax + BAY_OFF + BAY_D + 0.9)
-      }
-    : base;
-  const w = bounds.maxX - bounds.minX;
-  const h = bounds.maxY - bounds.minY;
-  const vbW = w + PADDING * 2;
-  const vbH = h + PADDING * 2;
-  const fy = (y) => bounds.maxY - y + PADDING;
-  const fx = (x) => x - bounds.minX + PADDING;
-  const gridStep = computeMapGridStep(Math.max(w, h));
-  const axisStep = gridStep * 5;
-  const dimensionLabel =
-    mapLayout.source === 'configured'
-      ? `${formatMetric(area.width)}m × ${formatMetric(area.height)}m`
-      : '坐标范围自动适配';
-
-  const readingMap = {};
-  readings.forEach((r) => { readingMap[r.point_id] = r; });
-
-  // 平面图成对分组：北排 (07,08)…；南排 (06,05)… 与 (23,22)…；(19) 单独
-  const PAIR_IDS = [
-    ['A-1-2-07', 'A-1-2-08'], ['A-1-2-09', 'A-1-2-10'], ['A-1-2-11', 'A-1-2-12'],
-    ['A-1-2-13', 'A-1-2-14'], ['A-1-2-15', 'A-1-2-16'], ['A-1-2-17', 'A-1-2-18'],
-    ['A-1-2-06', 'A-1-2-05'], ['A-1-2-04', 'A-1-2-03'], ['A-1-2-02', 'A-1-2-01'],
-    ['A-1-2-23', 'A-1-2-22'], ['A-1-2-21', 'A-1-2-20']
-  ];
-  const pointById = Object.fromEntries(points.map((p) => [p.id, p]));
-  const bayGeom = (pt) => {
-    const isTop = num(pt.y) >= aisleMid;
-    const bayX = fx(pt.x) - BAY_W / 2;
-    const bayY = isTop ? fy(num(pt.y) + BAY_OFF + BAY_D) : fy(num(pt.y) - BAY_OFF);
-    const labelY = fy(isTop ? num(pt.y) + BAY_OFF + BAY_D / 2 : num(pt.y) - BAY_OFF - BAY_D / 2);
-    return { isTop, bayX, bayY, labelY };
+  const getBay = (point) => {
+    const x = num(point.x) || 0;
+    const y = num(point.y) || 0;
+    const north = y >= rowMiddle;
+    return {
+      x: fx(x) - BAY_W / 2,
+      y: north ? fy(y + BAY_OFFSET + BAY_D) : fy(y - BAY_OFFSET),
+      labelY: fy(north ? y + BAY_OFFSET + BAY_D / 2 : y - BAY_OFFSET - BAY_D / 2)
+    };
   };
 
-  // 走道只画在垛位 x 范围，避免整房横向通栏空白感
-  const baySpanMinX = ptXs.length ? Math.min(...ptXs) - BAY_W / 2 - 0.3 : bounds.minX;
-  const baySpanMaxX = ptXs.length ? Math.max(...ptXs) + BAY_W / 2 + 0.3 : bounds.maxX;
-  const aisleX = fx(baySpanMinX);
-  const aisleW = Math.max(baySpanMaxX - baySpanMinX, 1);
-
-  const trailStr = trail.map((t) => `${fx(num(t.pos_x))},${fy(num(t.pos_y))}`).join(' ');
+  const activatePoint = (pointId) => setSelectedPointId((current) => (current === pointId ? null : pointId));
 
   return (
-    <div className="card map-card">
-      <div className="card-header">
-        <h3>室内定位平面图</h3>
-        <span className="card-sub">
-          {area.name} · {dimensionLabel}
-          {devices.length > 0 && <span className="chip" style={{ marginLeft: 8 }}>{devices.length} 台有位置上报</span>}
-          <span className="chip" style={{ marginLeft: 8 }}>
-            {streamOnline ? '数据通道已连接' : '等待采集通道'}
+    <section className="card inspection-map-card" aria-label="仓间巡检地图">
+      <header className="inspection-map-header">
+        <div className="inspection-map-title-group">
+          <span className="inspection-map-eyebrow">室内定位巡检</span>
+          <div className="card-title">{area.name} 巡检地图</div>
+          <div className="card-subtitle">{dimensionLabel} · 轨迹、设备位置与点位读数叠加在同一 CAD 平面</div>
+        </div>
+
+        <div className="inspection-map-controls" role="group" aria-label="巡检图层">
+          <button type="button" className={showTrail ? 'active' : ''} aria-pressed={showTrail} onClick={() => setShowTrail((value) => !value)}>实际轨迹</button>
+          <button type="button" className={showReadings ? 'active' : ''} aria-pressed={showReadings} onClick={() => setShowReadings((value) => !value)}>点位读数</button>
+        </div>
+
+        <div className="inspection-map-header-right">
+          <span className={`inspection-map-live-status ${streamOnline && !isStale ? '' : 'stale'}`}>
+            <i /> {streamOnline ? '实时通道已连接' : latestTimestamp ? `最后更新 ${formatAge(new Date(latestTimestamp).toISOString())}` : '等待巡检数据'}
           </span>
-        </span>
+          <span className="inspection-map-status-note">越界位置与未标定读数不显示</span>
+        </div>
+      </header>
+
+      {error && <div className="inspection-map-error">{error}</div>}
+
+      <div className="inspection-map-stat-strip">
+        <span>在线设备 <strong>{visibleDevices.length}</strong></span>
+        <span>有效轨迹 <strong>{visibleTrail.length}</strong></span>
+        <span>已匹配点位 <strong>{freshReadings.size} / {mappedPoints.length}</strong></span>
+        <span className={abnormalCount ? 'inspection-map-bad' : ''}>阈值异常 <strong>{abnormalCount}</strong></span>
+        <span className="inspection-map-source-note">坐标范围 {dimensionLabel}</span>
       </div>
 
-      {error && <div className="page-error">{error}</div>}
+      <div className="inspection-map-canvas">
+        <div className="inspection-map-floor">
+          <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <filter id="robotGlow" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="0.12" result="blur" />
+                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+              </filter>
+            </defs>
 
-      <div className="map-body">
-        {/* SVG floor plan — A-1-2 单间，上下成对垛位 + 中央走道 */}
-        <div className="slam-floor">
-          <svg viewBox={`0 0 ${vbW} ${vbH}`} preserveAspectRatio="xMidYMid meet">
-            {/* room boundary */}
-            <rect x={PADDING} y={PADDING} width={w} height={h} rx={0.12}
-              fill="rgba(9,32,72,0.9)" stroke="rgba(101,200,255,0.4)" strokeWidth={0.07} />
-
-            {/* grid lines */}
-            {Array.from({ length: Math.floor(w / gridStep) + 1 }, (_, i) => (
-              <line key={`gv${i}`} x1={PADDING + i * gridStep} y1={PADDING} x2={PADDING + i * gridStep} y2={PADDING + h}
-                stroke="rgba(101,200,255,0.1)" strokeWidth={0.03} />
+            <rect x={MAP_PADDING} y={MAP_PADDING} width={width} height={height} rx={0.08} fill="#061326" stroke="#80d5ff" strokeOpacity="0.7" strokeWidth={0.06} />
+            {Array.from({ length: Math.floor(width / gridStep) + 1 }, (_, index) => (
+              <line key={`grid-x-${index}`} x1={MAP_PADDING + index * gridStep} x2={MAP_PADDING + index * gridStep} y1={MAP_PADDING} y2={MAP_PADDING + height} stroke="#65c8ff" strokeOpacity="0.11" strokeWidth={0.025} />
             ))}
-            {Array.from({ length: Math.floor(h / gridStep) + 1 }, (_, i) => (
-              <line key={`gh${i}`} x1={PADDING} y1={PADDING + i * gridStep} x2={PADDING + w} y2={PADDING + i * gridStep}
-                stroke="rgba(101,200,255,0.1)" strokeWidth={0.03} />
+            {Array.from({ length: Math.floor(height / gridStep) + 1 }, (_, index) => (
+              <line key={`grid-y-${index}`} x1={MAP_PADDING} x2={MAP_PADDING + width} y1={MAP_PADDING + index * gridStep} y2={MAP_PADDING + index * gridStep} stroke="#65c8ff" strokeOpacity="0.11" strokeWidth={0.025} />
             ))}
 
-            {/* axis labels */}
-            {Array.from({ length: Math.floor(w / axisStep) + 1 }, (_, i) => (
-              <text key={`lx${i}`} x={PADDING + i * axisStep} y={PADDING + h + 0.55}
-                textAnchor="middle" fontSize={0.38} fill="rgba(205,231,255,0.5)">
-                {formatMetric(bounds.minX + i * axisStep, 0)}m
-              </text>
+            <rect x={fx(aisleStart)} y={fy(northRowY + BAY_OFFSET)} width={Math.max(1, aisleEnd - aisleStart)} height={Math.max(0.9, northRowY - southRowY - BAY_OFFSET * 2)} fill="#0d3158" fillOpacity="0.8" stroke="#65c8ff" strokeOpacity="0.27" strokeWidth={0.035} />
+            <text x={fx((aisleStart + aisleEnd) / 2)} y={fy(rowMiddle) + 0.15} textAnchor="middle" fontSize={0.34} fill="#91d8ff" fillOpacity="0.62" letterSpacing="0.12em">中央巡检通道</text>
+
+            {mappedPoints.map((point) => {
+              const bay = getBay(point);
+              const reading = freshReadings.get(point.id);
+              const abnormal = reading && (num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT);
+              return (
+                <g key={`bay-${point.id}`}>
+                  <rect x={bay.x} y={bay.y} width={BAY_W} height={BAY_D} rx={0.045} fill={abnormal ? '#57283b' : '#263f61'} fillOpacity="0.88" stroke={abnormal ? '#ff7382' : '#d9bd93'} strokeOpacity={abnormal ? 0.95 : 0.76} strokeWidth={abnormal ? 0.08 : 0.045} />
+                  {Array.from({ length: 9 }, (_, index) => (
+                    <line key={`shelf-${point.id}-${index}`} x1={bay.x + 0.06} x2={bay.x + BAY_W - 0.06} y1={bay.y + (BAY_D * (index + 1)) / 10} y2={bay.y + (BAY_D * (index + 1)) / 10} stroke="#f1d5a8" strokeOpacity="0.25" strokeWidth={0.022} />
+                  ))}
+                  <text x={fx(num(point.x))} y={bay.labelY + 0.17} textAnchor="middle" fontSize={0.38} fontWeight="700" fill="#f7e3be">{point.name || point.id}</text>
+                  <text x={fx(num(point.x))} y={bay.labelY + 0.53} textAnchor="middle" fontSize={0.19} fill="#c5dcf3" fillOpacity="0.68">{point.id}</text>
+                </g>
+              );
+            })}
+
+            {[0.5, 3.6, 6.8, 10, 13.2, 16.4, width - 0.5].filter((x) => x >= 0 && x <= width).map((x, index) => (
+              <g key={`column-${index}`}>
+                <rect x={fx(x) - 0.18} y={MAP_PADDING + 0.1} width={0.36} height={0.32} fill="#172533" stroke="#8aa4ba" strokeOpacity="0.45" strokeWidth={0.03} />
+                <rect x={fx(x) - 0.18} y={MAP_PADDING + height - 0.42} width={0.36} height={0.32} fill="#172533" stroke="#8aa4ba" strokeOpacity="0.45" strokeWidth={0.03} />
+              </g>
             ))}
-
-            {/* central aisle band between the two rack rows */}
-            {aisleMax > aisleMin && (
-              <rect x={aisleX} y={fy(aisleMax)} width={aisleW} height={aisleMax - aisleMin}
-                fill="rgba(101,200,255,0.07)" stroke="rgba(101,200,255,0.16)" strokeWidth={0.03} rx={0.08} />
-            )}
-            {aisleMax > aisleMin && (
-              <text x={aisleX + aisleW / 2} y={fy(aisleMid) + 0.12} textAnchor="middle"
-                fontSize={0.42} fill="rgba(101,200,255,0.45)">中 央 走 道</text>
-            )}
-
-            {/* 门：右短边进仓侧 */}
-            <g>
-              <rect x={PADDING + w - 0.08} y={fy(aisleMid) - 0.9} width={0.4} height={1.8} rx={0.08}
-                fill="rgba(47,125,255,0.2)" stroke="#65c8ff" strokeWidth={0.05} />
-              <text x={PADDING + w + 0.18} y={fy(aisleMid) - 1.1} textAnchor="middle"
-                fontSize={0.38} fill="#8fd4ff">门</text>
+            <g transform={`translate(${fx(Math.min(width - 0.75, aisleEnd + 0.12))} ${fy(rowMiddle) - 0.43})`}>
+              <path d="M0 0.9 V0.18 H0.58 V0.9" fill="none" stroke="#80d5ff" strokeWidth="0.06" />
+              <text x="0.29" y="1.17" textAnchor="middle" fontSize="0.24" fill="#8fd9ff">入口</text>
+            </g>
+            <g transform={`translate(${fx(Math.max(0.7, width * 0.32))} ${MAP_PADDING + 0.45})`}>
+              <rect width="0.48" height="0.28" rx="0.03" fill="#b62334" />
+              <text x="0.24" y="0.21" textAnchor="middle" fontSize="0.15" fontWeight="700" fill="#fff">消</text>
+            </g>
+            <g transform={`translate(${fx(Math.min(width - 1.1, width * 0.72))} ${MAP_PADDING + height - 0.75})`}>
+              <rect width="0.48" height="0.28" rx="0.03" fill="#b62334" />
+              <text x="0.24" y="0.21" textAnchor="middle" fontSize="0.15" fontWeight="700" fill="#fff">消</text>
             </g>
 
-            {/* pair frames — 成对外框，贴近平面图双列垛 */}
-            {PAIR_IDS.map((pair) => {
-              const members = pair.map((id) => pointById[id]).filter(Boolean);
-              if (members.length < 2) return null;
-              const xs = members.map((p) => num(p.x));
-              const isTop = num(members[0].y) >= aisleMid;
-              const minX = Math.min(...xs) - BAY_W / 2 - 0.08;
-              const maxX = Math.max(...xs) + BAY_W / 2 + 0.08;
-              const outerY = isTop
-                ? fy(num(members[0].y) + BAY_OFF + BAY_D + 0.08)
-                : fy(num(members[0].y) - BAY_OFF + 0.08);
-              return (
-                <rect key={`pair-${pair.join('_')}`}
-                  x={fx(minX)} y={outerY}
-                  width={maxX - minX} height={BAY_D + 0.16} rx={0.1}
-                  fill="none" stroke="rgba(217,189,147,0.22)" strokeWidth={0.04} />
-              );
-            })}
+            {showTrail && trailPath && <polyline points={trailPath} fill="none" stroke="#50d4b1" strokeOpacity="0.82" strokeWidth="0.09" strokeLinecap="round" strokeLinejoin="round" />}
+            {showTrail && visibleTrail.map((item, index) => index % 3 === 0 && <circle key={`trail-${index}`} cx={fx(num(item.pos_x))} cy={fy(num(item.pos_y))} r="0.055" fill="#b7fff0" />)}
 
-            {/* bay stacks — 成对短矩形；单行编号标签；告警红框 */}
-            {points.map((pt) => {
-              const { bayX, bayY, labelY } = bayGeom(pt);
-              const rd = readingMap[pt.id];
-              const abn = rd && (num(rd.temp_c) > TEMP_LIMIT || num(rd.rh) > RH_LIMIT);
+            {mappedPoints.map((point) => {
+              const reading = freshReadings.get(point.id);
+              const abnormal = reading && (num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT);
+              const selected = point.id === selectedPointId;
               return (
-                <g key={`bay-${pt.id}`}>
-                  <rect x={bayX} y={bayY} width={BAY_W} height={BAY_D} rx={0.08}
-                    fill={abn ? 'rgba(248,113,113,0.16)' : 'rgba(217,189,147,0.22)'}
-                    stroke={abn ? 'rgba(248,113,113,0.9)' : 'rgba(217,189,147,0.65)'}
-                    strokeWidth={abn ? 0.09 : 0.045} />
-                  {/* 货架层线，接近平面图格纹 */}
-                  {[0.25, 0.5, 0.75].map((t) => (
-                    <line key={`sl-${pt.id}-${t}`}
-                      x1={bayX + 0.08} x2={bayX + BAY_W - 0.08}
-                      y1={bayY + BAY_D * t} y2={bayY + BAY_D * t}
-                      stroke="rgba(217,189,147,0.18)" strokeWidth={0.025} />
-                  ))}
-                  <text x={fx(pt.x)} y={labelY + 0.17} textAnchor="middle"
-                    fontSize={0.52} fontWeight="700" fill="rgba(235,214,176,0.95)">
-                    {pt.name || pt.id}
-                  </text>
+                <g key={`point-${point.id}`} className="inspection-map-point" role="button" tabIndex="0" aria-label={`${point.id} ${point.name || ''} ${reading ? `${reading.temp_c}摄氏度 ${reading.rh}%湿度` : '暂无新鲜读数'}`} onClick={() => activatePoint(point.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activatePoint(point.id); } }}>
+                  {selected && <circle cx={fx(num(point.x))} cy={fy(num(point.y))} r="0.38" fill="none" stroke="#f5d777" strokeWidth="0.045" />}
+                  <circle cx={fx(num(point.x))} cy={fy(num(point.y))} r="0.17" fill={abnormal ? '#ff7382' : '#2f7dff'} stroke="#e9f7ff" strokeWidth="0.04" />
+                  {showReadings && reading && <text x={fx(num(point.x))} y={fy(num(point.y)) - 0.3} textAnchor="middle" fontSize="0.25" fontWeight="700" fill={abnormal ? '#ff9aa4' : '#91f2d0'}>{Number(reading.temp_c).toFixed(1)}° / {Number(reading.rh).toFixed(0)}%</text>}
                 </g>
               );
             })}
 
-            {/* checkpoint dwell dots + live readings */}
-            {points.map((pt) => {
-              const rd = readingMap[pt.id];
-              const abn = rd && (num(rd.temp_c) > TEMP_LIMIT || num(rd.rh) > RH_LIMIT);
+            {visibleDevices.map((device) => {
+              const x = num(device.pos_x);
+              const y = num(device.pos_y);
+              const heading = num(device.yaw) || 0;
               return (
-                <g key={pt.id}>
-                  <circle cx={fx(pt.x)} cy={fy(pt.y)} r={0.22}
-                    fill="rgba(47,125,255,0.32)" stroke="#65c8ff" strokeWidth={0.045} />
-                  {rd && (
-                    <text x={fx(pt.x)} y={fy(pt.y) - 0.38}
-                      textAnchor="middle" fontSize={0.3} fontWeight="600" fill={abn ? '#f87171' : '#4ade80'}>
-                      {rd.temp_c}°/{rd.rh}%
-                    </text>
-                  )}
+                <g key={`device-${device.device_id}`} filter="url(#robotGlow)">
+                  <circle cx={fx(x)} cy={fy(y)} r="0.42" fill="#50d4b1" fillOpacity="0.14">
+                    <animate attributeName="r" values="0.28;0.48;0.28" dur="2s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.95;0.25;0.95" dur="2s" repeatCount="indefinite" />
+                  </circle>
+                  <circle cx={fx(x)} cy={fy(y)} r="0.19" fill="#50d4b1" stroke="#f3fffd" strokeWidth="0.04" />
+                  <line x1={fx(x)} y1={fy(y)} x2={fx(x) + Math.cos(heading) * 0.42} y2={fy(y) - Math.sin(heading) * 0.42} stroke="#e7fffa" strokeWidth="0.06" strokeLinecap="round" />
+                  <text x={fx(x)} y={fy(y) - 0.48} textAnchor="middle" fontSize="0.25" fontWeight="700" fill="#a8ffe6">{device.device_id}</text>
                 </g>
-              );
-            })}
-
-            {/* trail */}
-            {trailStr && (
-              <polyline points={trailStr} fill="none"
-                stroke="rgba(101,200,255,0.35)" strokeWidth={0.06}
-                strokeDasharray="0.2 0.1" strokeLinejoin="round" />
-            )}
-
-            {/* robot positions */}
-            {devices.map((dev) => {
-              const dx = num(dev.pos_x), dy = num(dev.pos_y);
-              return (
-              <g key={dev.device_id}>
-                <circle cx={fx(dx)} cy={fy(dy)} r={0.25}
-                  fill="rgba(78,222,128,0.3)" stroke="none">
-                  <animate attributeName="r" values="0.25;0.45;0.25" dur="2s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite" />
-                </circle>
-                <circle cx={fx(dx)} cy={fy(dy)} r={0.18}
-                  fill="#4ade80" stroke="#fff" strokeWidth={0.04} />
-                <line
-                  x1={fx(dx)} y1={fy(dy)}
-                  x2={fx(dx) + Math.cos(num(dev.yaw)) * 0.4}
-                  y2={fy(dy) - Math.sin(num(dev.yaw)) * 0.4}
-                  stroke="#4ade80" strokeWidth={0.06} strokeLinecap="round" />
-                <text x={fx(dx)} y={fy(dy) - 0.4}
-                  textAnchor="middle" fontSize={0.3} fill="#4ade80" fontWeight="600">
-                  {dev.device_id}
-                </text>
-              </g>
               );
             })}
           </svg>
         </div>
 
-        {/* sidebar */}
-        <div className="map-list slam-sidebar">
-          <div className="slam-section">
-            <div className="slam-section-title">最近位置上报</div>
-            {devices.length === 0 && <div className="sensor-empty">当前没有机器狗进仓采集</div>}
-            {devices.map((dev) => (
-              <div key={dev.device_id} className="slam-device-row">
-                <div className="slam-device-name">
-                  <span className="health-dot ok" />
-                  {dev.device_id}
-                </div>
-                <div className="slam-device-meta">
-                  坐标 ({num(dev.pos_x).toFixed(2)}, {num(dev.pos_y).toFixed(2)})
-                  {dev.point_id && <> · 靠近 <strong>{dev.point_id}</strong></>}
-                </div>
-                <div className="slam-device-meta">
-                  {dev.temp_c != null && <>{dev.temp_c}°C / {dev.rh}%</>}
-                  <span style={{ marginLeft: 8, opacity: 0.6 }}>{formatAge(dev.ts)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="inspection-map-legend" aria-label="地图图例">
+          <span><i className="legend-path" /> 实际轨迹</span>
+          <span><i className="legend-device" /> 巡检设备</span>
+          <span><i className="legend-point" /> 正常点位</span>
+          <span><i className="legend-alert" /> 阈值异常</span>
+        </div>
 
-          <div className="slam-section">
-            <div className="slam-section-title">巡检点读数</div>
-            {points.map((pt) => {
-              const rd = readingMap[pt.id];
-              return (
-                <div key={pt.id} className="slam-reading-row">
-                  <div className="slam-reading-label">
-                    <strong>{pt.id}</strong> {pt.name}
-                  </div>
-                  {rd ? (
-                    <div className="slam-reading-values">
-                      <span>{rd.temp_c}°C</span>
-                      <span>{rd.rh}%</span>
-                      <span className="slam-reading-age">{formatAge(rd.ts)}</span>
-                    </div>
-                  ) : (
-                    <div className="slam-reading-values" style={{ opacity: 0.4 }}>--</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+        <div className="inspection-map-detail">
+          {selectedPoint ? (
+            <>
+              <span>已选点位</span>
+              <strong>{selectedPoint.id} · {selectedPoint.name}</strong>
+              {selectedReading ? <b>{Number(selectedReading.temp_c).toFixed(1)}℃ <em>/</em> {Number(selectedReading.rh).toFixed(0)}%RH</b> : <small>当前没有该点位的新鲜读数</small>}
+              {selectedReading && <small>由 {selectedReading.device_id || '巡检设备'} 在 {formatAge(selectedReading.ts)} 采集</small>}
+              <button type="button" onClick={() => setSelectedPointId(null)}>取消选择</button>
+            </>
+          ) : (
+            <><span>点位详情</span><strong>选择平面图中的已标定点位</strong><small>显示该库位的最新温湿度读数与采集时间。</small></>
+          )}
         </div>
       </div>
-    </div>
+
+      <footer className="inspection-map-footer">实时轨迹只保留近 1 小时的仓间内位置；现场 CAD 图层可按最终测绘坐标继续校准。</footer>
+    </section>
   );
 };
 
