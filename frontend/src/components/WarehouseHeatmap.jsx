@@ -11,8 +11,11 @@ import { getSlamPoints, getSlamReadings } from '../api.js';
 const POLL_MS = 30000;
 const FRESH_WINDOW_MS = 30 * 60 * 1000;
 const MAP_PADDING = 0.75;
+// 报警上限(红色端)与正常基线(冷色端)：颜色按绝对阈值映射，只有达到上限才红。
 const TEMP_LIMIT = 32;
 const RH_LIMIT = 65;
+const TEMP_FLOOR = 20;
+const RH_FLOOR = 45;
 
 // 与后端 A-1-2 点位配置对应：上下两排短垛，中间保持完整主通道。
 const BAY_W = 1.28;
@@ -31,8 +34,8 @@ const PALETTE = [
 const LEGEND_GRADIENT = `linear-gradient(90deg, ${PALETTE.map(([stop, color]) => `${color} ${stop * 100}%`).join(', ')})`;
 
 const MODES = {
-  temp: { key: 'temp_c', label: '温度', unit: '℃', limit: TEMP_LIMIT },
-  rh: { key: 'rh', label: '湿度', unit: '%RH', limit: RH_LIMIT }
+  temp: { key: 'temp_c', label: '温度', unit: '℃', limit: TEMP_LIMIT, floor: TEMP_FLOOR },
+  rh: { key: 'rh', label: '湿度', unit: '%RH', limit: RH_LIMIT, floor: RH_FLOOR }
 };
 
 const num = (value) => {
@@ -227,17 +230,12 @@ const WarehouseHeatmap = () => {
     [stackSamples]
   );
 
-  const domain = useMemo(() => {
-    if (!stackSamples.length) return [0, 1];
-    const values = stackSamples.map((sample) => sample.v);
-    let minValue = Math.min(...values);
-    let maxValue = Math.max(...values);
-    if (maxValue - minValue < 0.5) {
-      minValue -= 0.25;
-      maxValue += 0.25;
-    }
-    return [minValue, maxValue];
-  }, [stackSamples]);
+  // 颜色域按绝对阈值固定：低端=正常基线(冷色)，高端=报警上限(红色)。
+  // 超过上限的值经 colorAt 截断为满红，正常读数(如25℃)落在冷色区，不再被相对色阶误染红。
+  const domain = useMemo(
+    () => [modeMeta.floor, modeMeta.limit],
+    [modeMeta]
+  );
 
   const heatmapUrl = useMemo(
     () => buildHeatUrl(bounds, stackSamples, domain),
@@ -506,7 +504,7 @@ const WarehouseHeatmap = () => {
       </div>
 
       <footer className="heatmap-footer">
-        <span>颜色表示相对分布，实测值以点位读数为准。</span>
+        <span>颜色按报警阈值着色（温度 ≥ {TEMP_LIMIT}℃、湿度 ≥ {RH_LIMIT}% 为红）；实测值以点位读数为准。</span>
         <span>{isStale ? `最新标定读数已过期（${formatAge(new Date(latestTimestamp).toISOString())}）` : '每 30 秒自动刷新'}</span>
       </footer>
     </section>
