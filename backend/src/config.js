@@ -61,18 +61,33 @@ const a12BayPoints = A12_BAYS.map(([num, x, row]) => ({
   bay: bayRect(x, row)
 }));
 
-// 巷道采集点 C01→C11: 相邻上排垛列中点、落在走道中线, 供狗在走道在途采样归属房间。
-const a12NorthXs = A12_BAYS.filter(([, , r]) => r === 'N').map(([, x]) => x).sort((a, b) => a - b);
-const a12AislePoints = a12NorthXs.slice(0, -1).map((x, index) => {
+// 垛间通道采集点 C01→C08: 点位必须落在相邻两垛之间的纵向通道中部，不能落在中央横向走廊。
+// 北排、南排各 4 个；南排不把 01/23 之间的进出口缺口作为垛间巡检点。
+const A12_PASSAGES = [
+  { row: 'N', between: ['08', '09'] },
+  { row: 'N', between: ['12', '13'] },
+  { row: 'N', between: ['14', '15'] },
+  { row: 'N', between: ['16', '17'] },
+  { row: 'S', between: ['05', '04'] },
+  { row: 'S', between: ['03', '02'] },
+  { row: 'S', between: ['23', '22'] },
+  { row: 'S', between: ['21', '20'] }
+];
+const a12BayX = Object.fromEntries(A12_BAYS.map(([num, x]) => [num, x]));
+const a12AislePoints = A12_PASSAGES.map(({ row, between }, index) => {
   const seq = index + 1;
   const tag = String(seq).padStart(2, '0');
+  const [leftBay, rightBay] = between;
+  const band = A12_BAND[row];
   return {
     id: `A-1-2-C${tag}`,
-    name: `巷${tag}`,
-    x: round2((x + a12NorthXs[index + 1]) / 2),
-    y: A12_AISLE.mid,
+    name: `${row === 'N' ? '北' : '南'}巷${leftBay}-${rightBay}`,
+    x: round2((a12BayX[leftBay] + a12BayX[rightBay]) / 2),
+    y: round2((band.y0 + band.y1) / 2),
     radius: A12_RADIUS,
     kind: 'aisle',
+    row,
+    between,
     patrol_seq: a12BayPoints.length + seq
   };
 });
@@ -109,7 +124,7 @@ const config = {
       aisle: { y0: A12_AISLE.y0, y1: A12_AISLE.y1 },
       door: A12_DOOR
     },
-    // 23 垛位(kind:'bay', 带垛体矩形 bay + 排 row + 巡检序 patrol_seq) + 11 巷道点(kind:'aisle')。
+    // 23 垛位(kind:'bay') + 8 个垛间通道点(kind:'aisle'，北排4个、南排4个)。
     // 详见上方 A-1-2 几何常量说明。
     points: [...a12BayPoints, ...a12AislePoints]
   },

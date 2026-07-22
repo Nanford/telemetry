@@ -731,85 +731,80 @@
   "aisle_waypoints": [
     {
       "id": "A-1-2-C01",
-      "x": 4.1,
-      "y": 20.05,
+      "x": 8.75,
+      "y": 28.7,
       "radius": 0.9,
-      "patrol_seq": 24
+      "patrol_seq": 24,
+      "row": "N",
+      "between": ["08", "09"]
     },
     {
       "id": "A-1-2-C02",
-      "x": 8.75,
-      "y": 20.05,
+      "x": 27.35,
+      "y": 28.7,
       "radius": 0.9,
-      "patrol_seq": 25
+      "patrol_seq": 25,
+      "row": "N",
+      "between": ["12", "13"]
     },
     {
       "id": "A-1-2-C03",
-      "x": 13.4,
-      "y": 20.05,
+      "x": 36.65,
+      "y": 28.7,
       "radius": 0.9,
-      "patrol_seq": 26
+      "patrol_seq": 26,
+      "row": "N",
+      "between": ["14", "15"]
     },
     {
       "id": "A-1-2-C04",
-      "x": 18.05,
-      "y": 20.05,
+      "x": 45.95,
+      "y": 28.7,
       "radius": 0.9,
-      "patrol_seq": 27
+      "patrol_seq": 27,
+      "row": "N",
+      "between": ["16", "17"]
     },
     {
       "id": "A-1-2-C05",
-      "x": 22.7,
-      "y": 20.05,
+      "x": 8.75,
+      "y": 10.8,
       "radius": 0.9,
-      "patrol_seq": 28
+      "patrol_seq": 28,
+      "row": "S",
+      "between": ["05", "04"]
     },
     {
       "id": "A-1-2-C06",
-      "x": 27.35,
-      "y": 20.05,
+      "x": 18.05,
+      "y": 10.8,
       "radius": 0.9,
-      "patrol_seq": 29
+      "patrol_seq": 29,
+      "row": "S",
+      "between": ["03", "02"]
     },
     {
       "id": "A-1-2-C07",
-      "x": 32,
-      "y": 20.05,
+      "x": 36.65,
+      "y": 10.8,
       "radius": 0.9,
-      "patrol_seq": 30
+      "patrol_seq": 30,
+      "row": "S",
+      "between": ["23", "22"]
     },
     {
       "id": "A-1-2-C08",
-      "x": 36.65,
-      "y": 20.05,
-      "radius": 0.9,
-      "patrol_seq": 31
-    },
-    {
-      "id": "A-1-2-C09",
-      "x": 41.3,
-      "y": 20.05,
-      "radius": 0.9,
-      "patrol_seq": 32
-    },
-    {
-      "id": "A-1-2-C10",
       "x": 45.95,
-      "y": 20.05,
+      "y": 10.8,
       "radius": 0.9,
-      "patrol_seq": 33
-    },
-    {
-      "id": "A-1-2-C11",
-      "x": 50.61,
-      "y": 20.05,
-      "radius": 0.9,
-      "patrol_seq": 34
+      "patrol_seq": 31,
+      "row": "S",
+      "between": ["21", "20"]
     }
   ],
   "stats": {
     "stack_count": 23,
-    "aisle_waypoint_count": 11,
+    "aisle_waypoint_count": 8,
     "stack_width_m": 3.02,
     "stack_depth_m": {
       "north_row": 13.3,

@@ -446,6 +446,25 @@ const WarehouseHeatmap = () => {
                 );
               })}
 
+              {/* 垛间通道点即使暂无新鲜读数也显示，确保区域趋势与巡检地图使用同一套点位布局。 */}
+              {mappedPoints.filter((point) => point.kind === 'aisle').map((point) => (
+                <g
+                  key={`aisle-point-${point.id}`}
+                  data-point-kind="aisle"
+                  aria-label={`${point.name || point.id}垛间通道点`}
+                >
+                  <title>{point.name || point.id}</title>
+                  <circle
+                    cx={fx(num(point.x))}
+                    cy={fy(num(point.y))}
+                    r="0.1"
+                    fill="#8fb8ff"
+                    stroke="#e9f7ff"
+                    strokeWidth="0.04"
+                  />
+                </g>
+              ))}
+
               {area.door && (
                 <g aria-hidden="true">
                   <rect x={fx(num(area.door.x)) - (num(area.door.width) || 4) / 2} y={fy(num(area.door.y)) - 0.16} width={num(area.door.width) || 4} height="0.32" rx="0.04"
