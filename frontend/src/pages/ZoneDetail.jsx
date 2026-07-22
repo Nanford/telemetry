@@ -38,7 +38,7 @@ const ZoneDetail = () => {
         zone_id: selectedZone,
         start: start.toISOString(),
         end: end.toISOString(),
-        bucket_minutes: 30
+        bucket_minutes: 5
       });
       const toNumber = (value) => {
         if (value === null || value === undefined || value === '') return null;
@@ -67,7 +67,7 @@ const ZoneDetail = () => {
       <div className="panel-grid">
         <TrendChart
           title="库区温湿度曲线"
-          subtitle={`${selectedZoneMeta?.description || '趋势详情'} · 30 分钟聚合`}
+          subtitle={`${selectedZoneMeta?.description || '趋势详情'} · 5 分钟聚合`}
           data={trend}
           actions={(
             <div className="chart-controls">
