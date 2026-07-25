@@ -192,7 +192,11 @@ export const computeInspectionMapLayout = ({
     bounds,
     canvas: {
       width: 1280,
-      height: Math.round(clamp(1280 / aspectRatio + 180, 450, 700))
+      // 高度 = 按长宽比铺满 1280 宽所需的高度 + 180 的图内留白(卡片/图例)。
+      // 上限原为 700: A-4-1(55.99×36.35, 长宽比 1.54)公式算出 1011 却被按到 700,
+      // 等比投影只好改由高度定标 —— 库房仅占绘图区宽度的 48%, 白白空掉一半。
+      // 放宽到 1040 让这类"宽而扁"的库房能按宽度定标; 仍保留上限, 避免窄长库房把卡片撑到离谱。
+      height: Math.round(clamp(1280 / aspectRatio + 180, 450, 1040))
     }
   };
 };

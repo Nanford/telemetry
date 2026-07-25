@@ -16,7 +16,10 @@ import {
 } from '../lib/inspection.js';
 
 const FRAME = { x: 48, y: 34, width: 1184 };
-const PLOT = { x: 92, width: 1096, top: 258, bottomPadding: 104 };
+// top/bottomPadding 是给悬停卡片预留的图内留白。卡片高 94~118, 上沿被 clamp 到 FRAME.y+28,
+// 故顶部实际只需 34+28+118+18≈198; 原来的 258/104 多留了约 70px, 直接压缩了绘图区。
+// 收到 210/84 后, A-4-1 的等比投影改由宽度定标(19.57 px/m), 库房正好铺满绘图区。
+const PLOT = { x: 92, width: 1096, top: 210, bottomPadding: 84 };
 const CARD = { width: 170, normalHeight: 94, alertHeight: 118 };
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -48,8 +51,9 @@ const InspectionRouteMap = ({
     bottom: plotBottom
   });
 
-  // 预设路线优先按巡检序 patrol_seq 连线（现场单程：上排东→西、下排西→东）。
-  // 缺 patrol_seq 时退回“蛇形”排序，避免按数组顺序连出斜穿全图的杂线。
+  // 预设路线优先按巡检序 patrol_seq 连线；方向由各区域配置决定，本组件不假设走法
+  //（A-4-1 现为下排东→西、西端换道、上排西→东，2026-07-23 现场照片真值确认）。
+  // 缺 patrol_seq 时才退回“蛇形”排序，避免按数组顺序连出斜穿全图的杂线。
   // 只连垛位停靠点，巷道在途点(kind:'aisle')不参与路线连线。
   const routeYs = points.map((point) => Number(point.y));
   const aisleMid = routeYs.length
@@ -66,7 +70,16 @@ const InspectionRouteMap = ({
       if (aTop !== bTop) return aTop ? -1 : 1;         // 上排在前
       return aTop ? Number(a.x) - Number(b.x) : Number(b.x) - Number(a.x);
     });
-  const routePoints = orderedRoute
+  const entrance = area?.door
+    && Number.isFinite(Number(area.door.x))
+    && Number.isFinite(Number(area.door.y))
+    ? { x: Number(area.door.x), y: Number(area.door.y) }
+    : null;
+  // 预设路线显式包含东门起点和返回段，和现场“东门进、东门出”的作业路径一致。
+  const routePath = entrance
+    ? [entrance, ...orderedRoute, entrance]
+    : orderedRoute;
+  const routePoints = routePath
     .map((point) => `${projectX(point.x)},${projectY(point.y)}`)
     .join(' ');
   // 实际轨迹按断档/跳变/出界分段，只连真实走过的段，杜绝跨洞假直线。
@@ -199,6 +212,40 @@ const InspectionRouteMap = ({
               strokeLinejoin="round"
               opacity="0.9"
             />
+          )}
+
+          {entrance && (
+            <g
+              className="inspection-route-entrance"
+              aria-label={`${area.door.label || '入口'}巡检起点`}
+            >
+              <circle
+                cx={projectX(entrance.x)}
+                cy={projectY(entrance.y)}
+                r="14"
+                fill="#082f3c"
+                stroke="#58f59a"
+                strokeWidth="3"
+              />
+              <path
+                d={`M ${projectX(entrance.x) + 24} ${projectY(entrance.y)} H ${projectX(entrance.x) - 4} M ${projectX(entrance.x) - 4} ${projectY(entrance.y)} l 9 -7 M ${projectX(entrance.x) - 4} ${projectY(entrance.y)} l 9 7`}
+                fill="none"
+                stroke="#58f59a"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <text
+                x={projectX(entrance.x) - 22}
+                y={projectY(entrance.y) + 5}
+                textAnchor="end"
+                fill="#b7ffe0"
+                fontSize="15"
+                fontWeight="700"
+              >
+                {area.door.label || '入口'}
+              </text>
+            </g>
           )}
 
           {trailSegments.map((segment, segIndex) => {
@@ -435,8 +482,8 @@ const InspectionRouteMap = ({
                   stroke="#ffffff"
                   strokeWidth="2.5"
                 />
-                {/* 紧凑读数：未悬停时贴在节点外侧（上排朝上、下排朝下），温/湿度分两行
-                    窄排显示，避免 23 列在水平方向堆叠、下排与走道侧标签相撞 */}
+                {/* 紧凑读数：未悬停时贴在节点外侧（上排朝上、下排朝下），温/湿度分两行，
+                    避免连续垛位在水平方向堆叠、下排与走道侧标签相撞。 */}
                 {reading && !active && (
                   <>
                     <text

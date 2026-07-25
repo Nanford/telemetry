@@ -16,6 +16,15 @@ const {
   toBatchListItem
 } = require('./inspection-batches');
 const { ensureTelemetrySchema } = require('./schema-migrations');
+const { applyCalibration } = require('./calibration');
+
+// 把一批含 pos_x/pos_y 的原始行, 就地变换到 CAD 系(阶段2标定; 未标定时恒等)。
+// 标定按 area_id 分区取值, 所以取数 SQL 必须带上 area_id; 缺失时回落到 default 变换。
+const calibrateRows = (rows) =>
+  rows.map((row) => {
+    const [posX, posY] = applyCalibration(row.pos_x, row.pos_y, config.slam.calibration, row.area_id);
+    return { ...row, pos_x: posX, pos_y: posY };
+  });
 
 const app = express();
 app.use(cors());
@@ -65,7 +74,8 @@ const loadInspectionBatches = async (scanRange = null) => {
 
   return buildInspectionBatches(telemetryRows, rules, config.slam.points, {
     gapMinutes: 30,
-    timeZone: 'Asia/Shanghai'
+    timeZone: 'Asia/Shanghai',
+    calibration: config.slam.calibration
   });
 };
 
@@ -91,10 +101,15 @@ const toSlamLivePoint = (telemetry) => {
   }
 
   const tsMs = parseTelemetryTimeMs(telemetry.ts);
+  // 实时位姿也过标定变换落到 CAD 系, 才能和前端 CAD 平面/垛位对齐(未标定时恒等)。
+  const [posX, posY] = applyCalibration(
+    toNumber(telemetry.pos_x), toNumber(telemetry.pos_y),
+    config.slam.calibration, telemetry.area_id
+  );
   return {
     device_id: telemetry.device_id,
-    pos_x: toNumber(telemetry.pos_x),
-    pos_y: toNumber(telemetry.pos_y),
+    pos_x: posX,
+    pos_y: posY,
     pos_z: toNumber(telemetry.pos_z),
     yaw: toNumber(telemetry.yaw),
     point_id: telemetry.point_id,
@@ -600,7 +615,7 @@ app.get('/api/v1/slam/latest', async (_req, res) => {
       ) latest ON tr.device_id = latest.device_id AND tr.ts = latest.max_ts
       WHERE tr.pose_source = 'go2_slam'
     `);
-    ok(res, rows);
+    ok(res, calibrateRows(rows));
   } catch (err) {
     fail(res, err.message, 500);
   }
@@ -612,7 +627,7 @@ app.get('/api/v1/slam/trail', async (req, res) => {
     const minutes = Number(req.query.minutes || 60);
 
     let sql = `
-      SELECT ts, pos_x, pos_y, point_id, device_id
+      SELECT ts, pos_x, pos_y, point_id, device_id, area_id
       FROM telemetry_raw
       WHERE pose_source = 'go2_slam'
         AND pose_fix = 1
@@ -624,7 +639,7 @@ app.get('/api/v1/slam/trail', async (req, res) => {
     sql += ' ORDER BY ts ASC LIMIT 500';
 
     const [rows] = await query(sql, params);
-    ok(res, rows);
+    ok(res, calibrateRows(rows));
   } catch (err) {
     fail(res, err.message, 500);
   }
@@ -662,7 +677,7 @@ app.get('/api/v1/slam/field', async (req, res) => {
       : 180;
 
     let sql = `
-      SELECT ts, pos_x, pos_y, temp_c, rh, device_id
+      SELECT ts, pos_x, pos_y, temp_c, rh, device_id, area_id
       FROM telemetry_raw
       WHERE pose_source = 'go2_slam'
         AND pose_fix = 1
@@ -675,7 +690,7 @@ app.get('/api/v1/slam/field', async (req, res) => {
     sql += ' ORDER BY ts ASC LIMIT 2000';
 
     const [rows] = await query(sql, params);
-    ok(res, rows);
+    ok(res, calibrateRows(rows));
   } catch (err) {
     fail(res, err.message, 500);
   }

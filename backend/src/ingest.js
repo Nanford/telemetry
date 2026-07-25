@@ -276,9 +276,15 @@ const flushBuffer = async () => {
     // 2) bulk upsert zones
     const zoneIds = [...new Set(batch.map((t) => t.zone_id).filter(Boolean))];
     for (const zid of zoneIds) {
+      const isActiveIndoorArea = zid === config.slam.area.area_id;
+      const zoneName = isActiveIndoorArea ? config.slam.area.name : zid;
+      const zoneDescription = isActiveIndoorArea ? config.slam.area.description : null;
       await pool.query(
-        `INSERT INTO zones (zone_id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = name`,
-        [zid, zid]
+        `INSERT INTO zones (zone_id, name, description) VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           name = IF(VALUES(zone_id) = ?, VALUES(name), name),
+           description = IF(VALUES(zone_id) = ?, VALUES(description), description)`,
+        [zid, zoneName, zoneDescription, config.slam.area.area_id, config.slam.area.area_id]
       );
     }
 

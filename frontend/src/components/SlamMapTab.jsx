@@ -7,6 +7,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createSlamStream, getSlamLive, getSlamPoints, getSlamReadings } from '../api.js';
 import { buildTrailSegments, computeMapGridStep, formatMetric } from '../lib/inspection.js';
+import CadDoor from './CadDoor.jsx';
 
 const POLL_MS = 5000;
 const TRAIL_WINDOW_MS = 60 * 60 * 1000;
@@ -61,6 +62,7 @@ const SlamMapTab = () => {
   const [selectedPointId, setSelectedPointId] = useState(null);
   const [error, setError] = useState('');
   const streamOnlineRef = useRef(false);
+  const floorRef = useRef(null);
 
   const setStreamState = (online) => {
     streamOnlineRef.current = online;
@@ -165,6 +167,17 @@ const SlamMapTab = () => {
       stream.close();
     };
   }, []);
+
+  // 小屏地图采用横向浏览。A-4-1 从东门进仓，首次加载时直接定位到东侧入口，
+  // 避免用户先看到西墙、误以为入口未绘制。
+  useEffect(() => {
+    const floor = floorRef.current;
+    if (!floor || area?.door?.wall !== 'east' || !window.matchMedia('(max-width: 720px)').matches) return;
+    const frame = window.requestAnimationFrame(() => {
+      floor.scrollLeft = floor.scrollWidth;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [area]);
 
   // 画布优先使用已配置仓间尺寸；只有缺失尺寸时，才根据已标定点位推导矩形范围。
   const bounds = useMemo(() => {
@@ -333,7 +346,8 @@ const SlamMapTab = () => {
       </div>
 
       <div className="inspection-map-canvas inspection-map-canvas--slam">
-        <div className="inspection-map-floor">
+        <div className="inspection-map-mobile-hint">东门为巡检起点 · 左右滑动查看完整仓间</div>
+        <div className="inspection-map-floor" ref={floorRef}>
           <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid meet">
             <defs>
               <filter id="robotGlow" x="-100%" y="-100%" width="300%" height="300%">
@@ -377,12 +391,12 @@ const SlamMapTab = () => {
               </g>
             ))}
             {area.door && (
-              <g transform={`translate(${fx(num(area.door.x))} ${fy(num(area.door.y))})`}>
-                <rect x={-(num(area.door.width) || 4) / 2} y={-0.16} width={num(area.door.width) || 4} height={0.32} rx={0.04} fill="#0d3158" stroke="#80d5ff" strokeWidth="0.06" />
-                <path d={`M ${-(num(area.door.width) || 4) / 2} -0.16 A ${num(area.door.width) || 4} ${num(area.door.width) || 4} 0 0 1 ${(num(area.door.width) || 4) / 2} -0.16`} fill="none" stroke="#80d5ff" strokeOpacity="0.5" strokeWidth="0.04" />
-                <text x="0" y="0.5" textAnchor="middle" fontSize="0.34" fill="#8fd9ff">南门 · 入口</text>
-              </g>
+              <CadDoor door={area.door} fx={fx} fy={fy} />
             )}
+            <g transform={`translate(${MAP_PADDING + width - 1.15} ${MAP_PADDING + 1.25})`} aria-label="北向标识">
+              <path d="M 0 0.62 L 0 -0.46 M 0 -0.46 l -0.2 0.32 M 0 -0.46 l 0.2 0.32" fill="none" stroke="#9fe6ff" strokeWidth="0.07" strokeLinecap="round" />
+              <text x="0" y="-0.66" textAnchor="middle" fontSize="0.3" fontWeight="700" fill="#c8f1ff">N</text>
+            </g>
             <g transform={`translate(${fx(Math.max(0.7, width * 0.32))} ${MAP_PADDING + 0.45})`}>
               <rect width="0.48" height="0.28" rx="0.03" fill="#b62334" />
               <text x="0.24" y="0.21" textAnchor="middle" fontSize="0.15" fontWeight="700" fill="#fff">消</text>
@@ -456,7 +470,7 @@ const SlamMapTab = () => {
         </div>
       </div>
 
-      <footer className="inspection-map-footer">实时轨迹只保留近 1 小时的仓间内位置；现场 CAD 图层可按最终测绘坐标继续校准。</footer>
+      <footer className="inspection-map-footer">A-4-1 CAD 基准：东门进出、南排东→西、西端换道、北排西→东；实时轨迹只保留近 1 小时的仓间内位置。</footer>
     </section>
   );
 };

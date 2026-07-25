@@ -256,29 +256,57 @@ export const mockSensors = [
 
 export const mockHourlySeries = makeHourly();
 
-// 与 backend config A-1-2 布局一致：上排 y=7、下排 y=5、中央走道、门在右
+// 与后端 A-4-1 CAD 布局一致：22 个垛位、4m 中央走道、东门进出。
+const mockA41BayDefs = [
+  ['17', 2.21, 'N'], ['18', 5.99, 'N'], ['19', 11.505, 'N'], ['20', 15.295, 'N'],
+  ['21', 20.805, 'N'], ['22', 24.595, 'N'], ['01', 33.895, 'N'], ['02', 39.405, 'N'],
+  ['03', 43.195, 'N'], ['04', 48.705, 'N'], ['05', 52.302, 'N'],
+  ['16', 2.21, 'S'], ['15', 5.99, 'S'], ['14', 11.505, 'S'], ['13', 15.295, 'S'],
+  ['12', 20.805, 'S'], ['11', 24.595, 'S'], ['10', 30.105, 'S'], ['09', 33.895, 'S'],
+  ['08', 39.405, 'S'], ['07', 43.195, 'S'], ['06', 48.705, 'S']
+];
+const mockA41PatrolOrder = ['05', '04', '03', '02', '01', '22', '21', '20', '19', '18', '17', '16', '15', '14', '13', '12', '11', '10', '09', '08', '07', '06'];
+const mockA41Bands = {
+  N: { y0: 20.85, y1: 35.35, lane: 19.85 },
+  S: { y0: 3.55, y1: 16.85, lane: 17.85 }
+};
+
 export const mockSlamPoints = {
-  area: { area_id: 'A-1-2', name: 'A-1-2 库房', width: 20, height: 12 },
-  points: [
-    ['A-1-2-07', 1.5, 7.0], ['A-1-2-08', 3.0, 7.0], ['A-1-2-09', 4.5, 7.0], ['A-1-2-10', 6.0, 7.0],
-    ['A-1-2-11', 7.5, 7.0], ['A-1-2-12', 9.0, 7.0], ['A-1-2-13', 10.5, 7.0], ['A-1-2-14', 12.0, 7.0],
-    ['A-1-2-15', 13.5, 7.0], ['A-1-2-16', 15.0, 7.0], ['A-1-2-17', 16.5, 7.0], ['A-1-2-18', 18.0, 7.0],
-    ['A-1-2-06', 1.5, 5.0], ['A-1-2-05', 3.0, 5.0], ['A-1-2-04', 4.5, 5.0], ['A-1-2-03', 6.0, 5.0],
-    ['A-1-2-02', 7.5, 5.0], ['A-1-2-01', 9.0, 5.0],
-    ['A-1-2-23', 12.0, 5.0], ['A-1-2-22', 13.5, 5.0], ['A-1-2-21', 15.0, 5.0], ['A-1-2-20', 16.5, 5.0],
-    ['A-1-2-19', 18.0, 5.0]
-  ].map(([id, x, y]) => ({ id, name: `垛${id.slice(-2)}`, x, y, radius: 0.6 }))
+  area: {
+    area_id: 'A-4-1',
+    name: 'A-4-1 仓间（A4 左下）',
+    description: 'A4 区左下仓间，巡检由东门进入',
+    width: 55.99,
+    height: 36.35,
+    aisle: { y0: 16.85, y1: 20.85 },
+    door: { x: 55.99, y: 18.9, width: 4, wall: 'east', label: '东门' },
+    orientation: { north: 'top', entrance: 'east' }
+  },
+  points: mockA41BayDefs.map(([number, x, row]) => {
+    const band = mockA41Bands[row];
+    return {
+      id: `A-4-1-${number}`,
+      name: `垛位 ${number}`,
+      x,
+      y: band.lane,
+      radius: 0.9,
+      kind: 'bay',
+      row,
+      patrol_seq: mockA41PatrolOrder.indexOf(number) + 1,
+      bay: { x0: x - 1.51, y0: band.y0, x1: x + 1.51, y1: band.y1 }
+    };
+  })
 };
 
 export const mockSlamLatest = [
   {
     device_id: 'go2_01',
-    pos_x: 10.5,
-    pos_y: 6.0,
+    pos_x: 30.105,
+    pos_y: 17.85,
     pos_z: 0.32,
     yaw: 0.03,
-    point_id: 'A-1-2-13',
-    area_id: 'A-1-2',
+    point_id: 'A-4-1-10',
+    area_id: 'A-4-1',
     temp_c: 25,
     rh: 57,
     ts: now.toISOString()
@@ -286,10 +314,10 @@ export const mockSlamLatest = [
 ];
 
 const trailPath = [
-  [1.5, 6.0], [3.0, 6.0], [4.5, 6.0], [6.0, 6.0], [7.5, 6.0],
-  [9.0, 6.0], [10.5, 6.0], [12.0, 6.0], [13.5, 6.0], [15.0, 6.0],
-  [16.5, 6.0], [18.0, 6.0], [16.5, 5.5], [15.0, 5.2], [13.5, 5.0],
-  [12.0, 5.0], [10.5, 5.5], [9.0, 6.0]
+  [55.8, 18.9], [52.302, 19.85], [48.705, 19.85], [43.195, 19.85],
+  [39.405, 19.85], [33.895, 19.85], [24.595, 19.85], [15.295, 19.85],
+  [5.99, 19.85], [2.21, 19.85], [2.21, 17.85], [11.505, 17.85],
+  [20.805, 17.85], [30.105, 17.85]
 ];
 
 export const mockSlamTrail = trailPath.map(([x, y], i) => ({
@@ -300,8 +328,8 @@ export const mockSlamTrail = trailPath.map(([x, y], i) => ({
 }));
 
 export const mockSlamReadings = [
-  { point_id: 'A-1-2-07', temp_c: 24.8, rh: 58, ts: new Date(now.getTime() - 5 * 60000).toISOString(), device_id: 'go2_01' },
-  { point_id: 'A-1-2-13', temp_c: 25.0, rh: 57, ts: new Date(now.getTime() - 3 * 60000).toISOString(), device_id: 'go2_01' },
-  { point_id: 'A-1-2-01', temp_c: 24.9, rh: 58, ts: new Date(now.getTime() - 2 * 60000).toISOString(), device_id: 'go2_01' },
-  { point_id: 'A-1-2-19', temp_c: 25.1, rh: 56, ts: new Date(now.getTime() - 60000).toISOString(), device_id: 'go2_01' }
+  { point_id: 'A-4-1-05', temp_c: 24.8, rh: 58, ts: new Date(now.getTime() - 5 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A-4-1-01', temp_c: 25.0, rh: 57, ts: new Date(now.getTime() - 3 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A-4-1-16', temp_c: 24.9, rh: 58, ts: new Date(now.getTime() - 2 * 60000).toISOString(), device_id: 'go2_01' },
+  { point_id: 'A-4-1-10', temp_c: 25.1, rh: 56, ts: new Date(now.getTime() - 60000).toISOString(), device_id: 'go2_01' }
 ];

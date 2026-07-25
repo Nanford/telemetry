@@ -1,0 +1,31 @@
+# =====================================================================
+# A-4-1（A4 左下仓间）CAD 点位基准
+# 坐标为 CAD 局部米制基准；现场真实 SLAM 停留点补齐后，按相同 id 更新 x/y。
+# 巡检方向：东门进入 → 南排东到西 → 西端换道 → 北排西到东 → 返回东门。
+# （2026-07-23 现场照片真值确认：10:45:54@17、10:46:18@18、10:47:11@20，北排是西→东。）
+# =====================================================================
+
+area_id: A-4-1
+points:
+  - { id: A-4-1-01, zone_id: A-4-1, name: 垛位 A-4-1-01, x: 33.895, y: 19.85, radius: 0.9, patrol_seq: 18 }
+  - { id: A-4-1-02, zone_id: A-4-1, name: 垛位 A-4-1-02, x: 39.405, y: 19.85, radius: 0.9, patrol_seq: 19 }
+  - { id: A-4-1-03, zone_id: A-4-1, name: 垛位 A-4-1-03, x: 43.195, y: 19.85, radius: 0.9, patrol_seq: 20 }
+  - { id: A-4-1-04, zone_id: A-4-1, name: 垛位 A-4-1-04, x: 48.705, y: 19.85, radius: 0.9, patrol_seq: 21 }
+  - { id: A-4-1-05, zone_id: A-4-1, name: 垛位 A-4-1-05, x: 52.302, y: 19.85, radius: 0.9, patrol_seq: 22 }
+  - { id: A-4-1-06, zone_id: A-4-1, name: 垛位 A-4-1-06, x: 48.705, y: 17.85, radius: 0.9, patrol_seq: 1 }
+  - { id: A-4-1-07, zone_id: A-4-1, name: 垛位 A-4-1-07, x: 43.195, y: 17.85, radius: 0.9, patrol_seq: 2 }
+  - { id: A-4-1-08, zone_id: A-4-1, name: 垛位 A-4-1-08, x: 39.405, y: 17.85, radius: 0.9, patrol_seq: 3 }
+  - { id: A-4-1-09, zone_id: A-4-1, name: 垛位 A-4-1-09, x: 33.895, y: 17.85, radius: 0.9, patrol_seq: 4 }
+  - { id: A-4-1-10, zone_id: A-4-1, name: 垛位 A-4-1-10, x: 30.105, y: 17.85, radius: 0.9, patrol_seq: 5 }
+  - { id: A-4-1-11, zone_id: A-4-1, name: 垛位 A-4-1-11, x: 24.595, y: 17.85, radius: 0.9, patrol_seq: 6 }
+  - { id: A-4-1-12, zone_id: A-4-1, name: 垛位 A-4-1-12, x: 20.805, y: 17.85, radius: 0.9, patrol_seq: 7 }
+  - { id: A-4-1-13, zone_id: A-4-1, name: 垛位 A-4-1-13, x: 15.295, y: 17.85, radius: 0.9, patrol_seq: 8 }
+  - { id: A-4-1-14, zone_id: A-4-1, name: 垛位 A-4-1-14, x: 11.505, y: 17.85, radius: 0.9, patrol_seq: 9 }
+  - { id: A-4-1-15, zone_id: A-4-1, name: 垛位 A-4-1-15, x: 5.99, y: 17.85, radius: 0.9, patrol_seq: 10 }
+  - { id: A-4-1-16, zone_id: A-4-1, name: 垛位 A-4-1-16, x: 2.21, y: 17.85, radius: 0.9, patrol_seq: 11 }
+  - { id: A-4-1-17, zone_id: A-4-1, name: 垛位 A-4-1-17, x: 2.21, y: 19.85, radius: 0.9, patrol_seq: 12 }
+  - { id: A-4-1-18, zone_id: A-4-1, name: 垛位 A-4-1-18, x: 5.99, y: 19.85, radius: 0.9, patrol_seq: 13 }
+  - { id: A-4-1-19, zone_id: A-4-1, name: 垛位 A-4-1-19, x: 11.505, y: 19.85, radius: 0.9, patrol_seq: 14 }
+  - { id: A-4-1-20, zone_id: A-4-1, name: 垛位 A-4-1-20, x: 15.295, y: 19.85, radius: 0.9, patrol_seq: 15 }
+  - { id: A-4-1-21, zone_id: A-4-1, name: 垛位 A-4-1-21, x: 20.805, y: 19.85, radius: 0.9, patrol_seq: 16 }
+  - { id: A-4-1-22, zone_id: A-4-1, name: 垛位 A-4-1-22, x: 24.595, y: 19.85, radius: 0.9, patrol_seq: 17 }

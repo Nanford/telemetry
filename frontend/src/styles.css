@@ -1706,7 +1706,11 @@ body::after {
 .inspection-map-canvas {
   width: 100%;
   min-height: 380px;
-  max-height: 700px;
+  /* 上限原为 700px：它会把 aspect-ratio 顶掉，SVG 被 preserveAspectRatio 整体缩小去适配，
+     A-4-1 这种宽扁库房只剩 48% 的绘图宽度。放宽到 1240px（画布高上限 1040 单位对应的
+     渲染高度）后让 aspect-ratio 真正生效；仍保留上限，避免极端长宽比把卡片撑到无限高。
+     同一约束当初也逼得 SlamMapTab 单独豁免，见下方 .inspection-map-canvas--slam。 */
+  max-height: 1240px;
   aspect-ratio: var(--inspection-map-ratio);
   overflow: hidden;
   position: relative;
@@ -1884,6 +1888,11 @@ body::after {
 
   .inspection-map-canvas {
     min-height: 360px;
+    /* 小屏下 svg 固定 900px 宽横向滚动，容器高度必须跟着 viewBox 走。
+       若仍用 aspect-ratio（按视口宽算高）会算出一个矮容器，把 svg 整体缩小去适配，
+       画面反而比放开前更小。这里交给下面的 svg{height:auto} 撑高。 */
+    max-height: none;
+    aspect-ratio: auto;
     overflow-x: auto;
     scrollbar-width: thin;
     scrollbar-color: rgba(101, 200, 255, 0.5) rgba(5, 26, 52, 0.9);
@@ -1906,6 +1915,7 @@ body::after {
   .inspection-map-canvas svg {
     width: 900px;
     min-width: 900px;
+    height: auto; /* 高度由 viewBox 决定，避免被容器固定高度压缩后再等比缩小 */
   }
 }
 
@@ -2430,6 +2440,10 @@ body::after {
   overflow: visible;
 }
 
+.inspection-map-mobile-hint {
+  display: none;
+}
+
 /* 小屏下旧媒体查询给 svg 设了 900px min-width，让 floor 内部可横向滚动而不是直接裁掉。 */
 .inspection-map-canvas--slam .inspection-map-floor {
   overflow-x: auto;
@@ -2560,6 +2574,13 @@ body::after {
   .inspection-map-controls button { flex: 1; }
   .inspection-map-stat-strip,
   .inspection-map-canvas { padding-right: 18px; padding-left: 18px; }
+  .inspection-map-mobile-hint {
+    display: block;
+    margin: -4px 0 10px;
+    color: rgba(159, 230, 255, 0.78);
+    font-size: 11px;
+    text-align: right;
+  }
   .inspection-map-source-note { width: 100%; margin-left: 0; }
   .inspection-map-detail { display: grid; grid-template-columns: 1fr; padding: 14px; }
 }
