@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+﻿import React from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import Overview from './pages/Overview.jsx';
 import InspectionBatches from './pages/InspectionBatches.jsx';
@@ -8,7 +8,7 @@ import ZoneDetail from './pages/ZoneDetail.jsx';
 import MapView from './pages/MapView.jsx';
 import Alerts from './pages/Alerts.jsx';
 import Rules from './pages/Rules.jsx';
-import { onConnectionChange, isUsingMock } from './api.js';
+import { SyncIndicator, LinkSignal } from './components/SyncIndicator.jsx';
 
 const navItems = [
   { to: '/', label: '工作台总览', icon: '◎' },
@@ -21,9 +21,7 @@ const navItems = [
 ];
 
 const AppShell = () => {
-  const [isMock, setIsMock] = useState(isUsingMock());
   const location = useLocation();
-  useEffect(() => onConnectionChange(setIsMock), []);
   const topbarTitle = location.pathname.startsWith('/inspections/')
     ? '巡检批次详情'
     : navItems.find((item) => (
@@ -60,13 +58,7 @@ const AppShell = () => {
         ))}
       </nav>
       <div className="sidebar-footer">
-        <div className="signal">
-          <span className={`signal-dot ${isMock ? 'signal-dot-warn' : ''}`} />
-          <div>
-            <div className="signal-title">{isMock ? '连接异常' : '数据链路'}</div>
-            <div className="signal-subtitle">{isMock ? '请检查后端服务' : 'MQTT · REST'}</div>
-          </div>
-        </div>
+        <LinkSignal />
         <div className="sidebar-note">v1.0 · Telemetry Console</div>
       </div>
     </aside>
@@ -75,7 +67,7 @@ const AppShell = () => {
       <header className="topbar">
         <div>
           <div className="topbar-title">{topbarTitle}</div>
-          <div className="topbar-subtitle">最后同步 · <span className="topbar-time">{new Date().toLocaleString()}</span></div>
+          <SyncIndicator />
         </div>
         <div className="topbar-actions">
           <NavLink className="ghost-button link-button" to="/inspections">

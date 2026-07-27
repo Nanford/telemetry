@@ -21,18 +21,37 @@ const apiUrl = (path) => `${API_BASE}/${path}`;
 
 /** Tracks whether the last fetch hit the real API or fell back to mock */
 let _lastFetchWasMock = false;
+/**
+ * 最近一次真正从后端取到数据的时刻（epoch ms）。
+ * 用于顶栏展示真实的数据新鲜度——渲染时刻不等于同步时刻，
+ * 后端挂掉时页面必须能看出数据已经陈旧，而不是显示当前时间。
+ */
+let _lastSuccessAt = null;
 const listeners = new Set();
 
+export const getConnectionStatus = () => ({
+  isMock: _lastFetchWasMock,
+  lastSuccessAt: _lastSuccessAt
+});
+
+/**
+ * 订阅链路状态变化。回调收到 getConnectionStatus() 的快照。
+ * 只在 mock/真实切换时触发；新鲜度由订阅方自行按秒轮询快照计算，
+ * 避免每次 fetch 都触发全局重渲染。
+ */
 export const onConnectionChange = (fn) => {
   listeners.add(fn);
+  fn(getConnectionStatus());
   return () => listeners.delete(fn);
 };
 export const isUsingMock = () => _lastFetchWasMock;
 
 const notify = (isMock) => {
+  if (!isMock) _lastSuccessAt = Date.now();
   if (_lastFetchWasMock !== isMock) {
     _lastFetchWasMock = isMock;
-    listeners.forEach((fn) => fn(isMock));
+    const snapshot = getConnectionStatus();
+    listeners.forEach((fn) => fn(snapshot));
   }
 };
 
@@ -85,6 +104,17 @@ export const getAlerts = withMockFallback(
   (_, opts) => fetchJson('alerts', opts),
   mockAlerts
 );
+
+/**
+ * 确认单条告警。无 mock 兜底——写操作失败必须让调用方看见，
+ * 不能静默假装成功。
+ */
+export const ackAlert = (id, payload = {}) =>
+  fetchJson(`alerts/${id}/ack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
 export const getRules = withMockFallback(
   (_, opts) => fetchJson('alert-rules', opts),

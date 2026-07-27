@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { getAlerts } from '../api.js';
+import { ackAlert, getAlerts } from '../api.js';
 
 const POLL_INTERVAL = 15_000;
 const statuses = ['all', 'open', 'acked', 'closed'];
@@ -68,6 +68,9 @@ const Alerts = () => {
   const [alerts, setAlerts] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  // 正在确认中的告警 id 集合，用于禁用按钮防重复提交
+  const [acking, setAcking] = useState(() => new Set());
+  const [actionError, setActionError] = useState('');
   const abortRef = useRef(null);
 
   const load = useCallback(async (signal) => {
@@ -101,6 +104,43 @@ const Alerts = () => {
     return alerts.filter((alert) => alert.status === statusFilter);
   }, [alerts, statusFilter]);
 
+  const openAlerts = useMemo(
+    () => filtered.filter((alert) => alert.status === 'open'),
+    [filtered]
+  );
+
+  /** 逐条提交确认。任一失败都如实报出，已成功的部分保留，随后重新拉取真实状态。 */
+  const confirmAlerts = useCallback(async (targets) => {
+    if (!targets.length) return;
+    setActionError('');
+    setAcking((prev) => new Set([...prev, ...targets.map((alert) => alert.id)]));
+
+    const results = await Promise.allSettled(
+      targets.map((alert) => ackAlert(alert.id, { acked_by: 'operator' }))
+    );
+    const failed = results.filter((result) => result.status === 'rejected');
+    if (failed.length) {
+      setActionError(
+        `${failed.length}/${targets.length} 条确认失败：${failed[0].reason?.message || '请求异常'}`
+      );
+    }
+
+    setAcking((prev) => {
+      const next = new Set(prev);
+      targets.forEach((alert) => next.delete(alert.id));
+      return next;
+    });
+    await load(abortRef.current?.signal);
+  }, [load]);
+
+  const handleBatchAck = useCallback(() => {
+    if (!openAlerts.length) return;
+    const confirmed = window.confirm(
+      `确认当前筛选范围内的 ${openAlerts.length} 条待处理告警？此操作会写入后端。`
+    );
+    if (confirmed) confirmAlerts(openAlerts);
+  }, [openAlerts, confirmAlerts]);
+
   if (loading) {
     return <div className="page"><div className="loading-state">加载中...</div></div>;
   }
@@ -124,13 +164,21 @@ const Alerts = () => {
         </div>
       </div>
 
+      {actionError && <div className="page-error">{actionError}</div>}
+
       <div className="card table-card">
         <div className="card-header">
           <div>
             <div className="card-title">告警列表</div>
             <div className="card-subtitle">温湿度异常与处理状态</div>
           </div>
-          <button className="ghost-button">批量确认</button>
+          <button
+            className="ghost-button"
+            onClick={handleBatchAck}
+            disabled={!openAlerts.length || acking.size > 0}
+          >
+            批量确认{openAlerts.length ? ` (${openAlerts.length})` : ''}
+          </button>
         </div>
         <div className="table alerts-table">
           <div className="table-row table-head">
@@ -140,6 +188,7 @@ const Alerts = () => {
             <span>当前值</span>
             <span>状态</span>
             <span>最近触发</span>
+            <span>操作</span>
           </div>
           {filtered.map((alert) => (
             <div key={alert.id} className="table-row">
@@ -153,6 +202,19 @@ const Alerts = () => {
                 {getStatusLabel(alert.status)}
               </span>
               <span>{new Date(alert.last_trigger_at).toLocaleString()}</span>
+              <span>
+                {alert.status === 'open' ? (
+                  <button
+                    className="ghost-button row-action"
+                    onClick={() => confirmAlerts([alert])}
+                    disabled={acking.has(alert.id)}
+                  >
+                    {acking.has(alert.id) ? '提交中' : '确认'}
+                  </button>
+                ) : (
+                  <span className="value-muted">--</span>
+                )}
+              </span>
             </div>
           ))}
         </div>

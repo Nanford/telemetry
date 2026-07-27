@@ -46,10 +46,22 @@ const subtractUtcMonths = (timestamp, months = DEFAULT_RANGE_MONTHS) => {
   );
 };
 
-const resolveInspectionRange = (query = {}, options = {}) => {
-  if (query.range === 'all') return null;
+/**
+ * 单次查询允许回溯的最大天数。
+ * range=all 过去返回 null（等于无界扫描 telemetry_raw 全表并在内存重算批次），
+ * 数据量增长后必然拖垮报表页，因此统一封顶。
+ */
+const DEFAULT_MAX_SCAN_DAYS = 180;
 
+const resolveInspectionRange = (query = {}, options = {}) => {
   const nowMs = toTimestamp(options.now ?? Date.now());
+  const maxWindowMs =
+    Number(options.maxScanDays ?? DEFAULT_MAX_SCAN_DAYS) * 24 * 60 * 60 * 1000;
+
+  if (query.range === 'all') {
+    return { startMs: nowMs - maxWindowMs, endMs: nowMs };
+  }
+
   const endMs = query.end ? toTimestamp(query.end) : nowMs;
   const startMs = query.start
     ? toTimestamp(query.start)
@@ -60,6 +72,11 @@ const resolveInspectionRange = (query = {}, options = {}) => {
   }
   if (startMs > endMs) {
     throw new Error('开始时间不能晚于结束时间');
+  }
+
+  // 手工构造的超长区间同样封顶，保留最近的一段
+  if (endMs - startMs > maxWindowMs) {
+    return { startMs: endMs - maxWindowMs, endMs };
   }
 
   return { startMs, endMs };
@@ -426,6 +443,7 @@ const summarizeInspectionBatches = (batches, options = {}) => {
 };
 
 module.exports = {
+  DEFAULT_MAX_SCAN_DAYS,
   buildInspectionBatchDetailPayload,
   buildInspectionBatchLookupRange,
   buildInspectionScanRange,

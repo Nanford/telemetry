@@ -33,6 +33,9 @@ const InspectionReports = () => {
 
   const summary = data.summary || {};
   const statusTotal = summary.total_batches || 1;
+  // 后端对查询区间封顶，这里如实说明统计范围，不写成"累计/全部"
+  const scanDays = data.grouping?.max_scan_days;
+  const rangeNote = scanDays ? `最近 ${scanDays} 天` : '当前查询区间';
   const statusRows = [
     { label: '正常批次', value: summary.normal_batches || 0, tone: 'ok' },
     { label: '异常批次', value: summary.abnormal_batches || 0, tone: 'alert' },
@@ -43,8 +46,8 @@ const InspectionReports = () => {
     <div className="page">
       {error && <div className="page-error">{error}</div>}
       <section className="stats-grid">
-        <StatCard label="累计巡检批次" value={summary.total_batches ?? '--'} unit="次" note="按30分钟断档自动归组" />
-        <StatCard label="累计采集数据" value={summary.total_measurements ?? '--'} unit="条" note="温湿度有效记录" />
+        <StatCard label="巡检批次" value={summary.total_batches ?? '--'} unit="次" note={`${rangeNote} · 按30分钟断档归组`} />
+        <StatCard label="采集数据" value={summary.total_measurements ?? '--'} unit="条" note={`${rangeNote} · 温湿度有效记录`} />
         <StatCard label="温度异常记录" value={summary.temp_abnormal_records ?? '--'} unit="条" note="依据已配置阈值" />
         <StatCard label="湿度异常记录" value={summary.rh_abnormal_records ?? '--'} unit="条" note="依据已配置阈值" />
       </section>

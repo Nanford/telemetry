@@ -144,12 +144,26 @@ assert.deepStrictEqual(defaultRange, {
   endMs: Date.parse('2026-06-24T12:00:00.000Z')
 });
 
-assert.strictEqual(
+// 行为变更：range=all 过去返回 null（无界全表扫描），
+// 现改为以最近 maxScanDays 天封顶，避免 telemetry_raw 增长后拖垮报表页。
+const allNowMs = Date.parse('2026-06-24T12:00:00.000Z');
+const DAY_MS = 24 * 60 * 60 * 1000;
+assert.deepStrictEqual(
   resolveInspectionRange({ range: 'all' }, {
-    now: '2026-06-24T12:00:00.000Z'
+    now: '2026-06-24T12:00:00.000Z',
+    maxScanDays: 180
   }),
-  null,
-  '显式全量查询不应套用默认24小时范围'
+  { startMs: allNowMs - 180 * DAY_MS, endMs: allNowMs },
+  'range=all 应封顶到最近 maxScanDays 天，而不是无界扫描'
+);
+
+assert.deepStrictEqual(
+  resolveInspectionRange(
+    { start: '2020-01-01T00:00:00.000Z', end: '2026-06-24T12:00:00.000Z' },
+    { maxScanDays: 180 }
+  ),
+  { startMs: allNowMs - 180 * DAY_MS, endMs: allNowMs },
+  '显式指定的超长区间同样封顶，保留最近一段'
 );
 
 assert.deepStrictEqual(

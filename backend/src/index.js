@@ -7,6 +7,7 @@ const { parseTime, toMysqlDatetime } = require('./utils');
 const { startIngest, invalidateRuleCache, flushBuffer, onTelemetry } = require('./ingest');
 const { ACTIVE_ALERT_RULE_WHERE, resolveAlertRuleDeleteMode } = require('./alert-rules');
 const {
+  DEFAULT_MAX_SCAN_DAYS,
   buildInspectionBatchDetailPayload,
   buildInspectionBatchLookupRange,
   buildInspectionScanRange,
@@ -47,6 +48,14 @@ const slamLiveState = {
 };
 const slamStreamClients = new Set();
 
+/**
+ * 单次批次重算允许载入的最大原始行数。
+ * 这是时间窗封顶之外的兜底：按 ts 倒序取，超限时丢掉的是最早的数据，
+ * 保证最近的批次始终完整。buildInspectionBatches 内部会按设备重排，
+ * 因此这里用倒序取数不影响分批结果。
+ */
+const MAX_SCAN_ROWS = 200000;
+
 const loadInspectionBatches = async (scanRange = null) => {
   const conditions = ['(temp_c IS NOT NULL OR rh IS NOT NULL)'];
   const params = [];
@@ -63,8 +72,16 @@ const loadInspectionBatches = async (scanRange = null) => {
            pose_source, pose_fix, pos_x, pos_y, pos_z, yaw, point_id, sample_type
     FROM telemetry_raw
     WHERE ${conditions.join(' AND ')}
-    ORDER BY device_id ASC, ts ASC, id ASC
+    ORDER BY ts DESC
+    LIMIT ${MAX_SCAN_ROWS}
   `, params);
+
+  if (telemetryRows.length >= MAX_SCAN_ROWS) {
+    console.warn(
+      `[inspection] 单次扫描命中 ${MAX_SCAN_ROWS} 行上限，早于本窗口的批次已被截断。` +
+      '建议缩小查询区间，或改为预聚合落库。'
+    );
+  }
   const [rules] = await query(`
     SELECT id, scope_type, zone_id, sensor_id,
            temp_high, temp_low, rh_high, rh_low
@@ -540,7 +557,9 @@ app.get('/api/v1/inspection-batches', async (req, res) => {
         gap_minutes: 30,
         time_zone: 'Asia/Shanghai',
         range_start: range ? new Date(range.startMs).toISOString() : null,
-        range_end: range ? new Date(range.endMs).toISOString() : null
+        range_end: range ? new Date(range.endMs).toISOString() : null,
+        // 查询区间已封顶，前端据此说明"最近 N 天"而非"全部"
+        max_scan_days: DEFAULT_MAX_SCAN_DAYS
       }
     });
   } catch (err) {

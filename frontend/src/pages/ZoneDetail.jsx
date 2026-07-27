@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import TrendChart from '../components/TrendChart.jsx';
 import WarehouseHeatmap from '../components/WarehouseHeatmap.jsx';
 import { getZones, getTrend, getSensors } from '../api.js';
@@ -60,6 +60,31 @@ const ZoneDetail = () => {
     [zones, selectedZone]
   );
 
+  /**
+   * 导出当前库区、当前时间窗的趋势序列为 CSV。
+   * 加 UTF-8 BOM，否则 Excel 打开中文表头会乱码。
+   */
+  const handleExportTrend = useCallback(() => {
+    if (!trend.length) return;
+    const rows = [
+      '采集时间,温度(℃),湿度(%)',
+      ...trend.map((point) => [
+        new Date(point.ts).toLocaleString('zh-CN'),
+        point.temp_c ?? '',
+        point.rh ?? ''
+      ].join(','))
+    ];
+    const blob = new Blob([`﻿${rows.join('\n')}`], {
+      type: 'text/csv;charset=utf-8;'
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${selectedZone || 'zone'}_${range.hours}h_趋势.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [trend, selectedZone, range]);
+
   return (
     <div className="page">
       <WarehouseHeatmap />
@@ -103,16 +128,24 @@ const ZoneDetail = () => {
               <div className="card-title">巡检终端点位</div>
               <div className="card-subtitle">{sensors.length} 个已登记采集点位</div>
             </div>
-            <button className="ghost-button">导出监测记录</button>
+            <button
+              className="ghost-button"
+              onClick={handleExportTrend}
+              disabled={!trend.length}
+            >
+              导出趋势 CSV
+            </button>
           </div>
           <div className="sensor-list">
+            {/* 点位状态需要 last_seen_at，当前 /sensors 接口未返回，
+                故不展示状态标签——宁可留空也不显示编造的「稳定」。 */}
             {sensors.map((sensor) => (
               <div key={sensor.sensor_id} className="sensor-item">
                 <div>
                   <div className="sensor-title">{sensor.sensor_id}</div>
                   <div className="sensor-sub">{sensor.type}</div>
                 </div>
-                <span className="status-pill">稳定</span>
+                <span className="sensor-zone">{sensor.zone_id}</span>
               </div>
             ))}
             {!sensors.length && <div className="sensor-empty">暂无巡检点位</div>}

@@ -203,12 +203,58 @@ body::after {
   border-radius: 14px;
 }
 
-.signal-dot {
+/* 链路状态色阶：绿=新鲜、黄=同步延迟、红=数据陈旧/降级、灰=从未连通。
+   顶栏与侧边栏共用同一套 tone-* 语义，避免两处指示互相矛盾。 */
+.signal-dot,
+.sync-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+  flex-shrink: 0;
   background: #6dff9c;
   box-shadow: 0 0 8px rgba(109, 255, 156, 0.7);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.signal-dot.tone-warn,
+.sync-dot.tone-warn,
+.tone-warn > .sync-dot {
+  background: var(--warning);
+  box-shadow: 0 0 8px rgba(255, 140, 66, 0.7);
+}
+
+.signal-dot.tone-alert,
+.sync-dot.tone-alert,
+.tone-alert > .sync-dot {
+  background: var(--alert);
+  box-shadow: 0 0 8px rgba(255, 79, 111, 0.75);
+}
+
+.signal-dot.tone-offline,
+.sync-dot.tone-offline,
+.tone-offline > .sync-dot {
+  background: #8ba0c4;
+  box-shadow: none;
+}
+
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sync-indicator .sync-age {
+  font-variant-numeric: tabular-nums; /* 秒数跳动时宽度不抖 */
+}
+
+.sync-indicator.tone-warn .sync-age {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.sync-indicator.tone-alert .sync-age {
+  color: var(--alert);
+  font-weight: 600;
 }
 
 .signal-title {
@@ -224,6 +270,12 @@ body::after {
 .sidebar-note {
   font-size: 11px;
   opacity: 0.6;
+}
+
+.sensor-zone {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .main {
@@ -1037,7 +1089,22 @@ body::after {
 }
 
 .alerts-table .table-row {
-  grid-template-columns: 1.3fr 0.9fr 0.8fr 0.9fr 0.9fr 1.4fr;
+  grid-template-columns: 1.3fr 0.9fr 0.8fr 0.9fr 0.9fr 1.4fr 0.7fr;
+}
+
+/* 表格内联操作按钮：比常规按钮更紧凑，避免撑高行 */
+.row-action {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 9px;
+}
+
+.ghost-button:disabled,
+.primary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .value-ok {
