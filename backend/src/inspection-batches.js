@@ -1,3 +1,5 @@
+const { applyCalibration } = require('./calibration');
+
 const DEFAULT_GAP_MINUTES = 30;
 const DEFAULT_TIME_ZONE = 'Asia/Shanghai';
 const DEFAULT_RANGE_MONTHS = 1;
@@ -199,17 +201,25 @@ const evaluateMeasurement = (measurement, rules) => {
   };
 };
 
-const enrichMeasurements = (rows, rules, points) =>
+// 匹配前先把原始 SLAM 位姿过标定变换落到 CAD 系(未标定时恒等, 零行为改变)。
+// 输出的 pos_x/pos_y 也是 CAD 系, 供前端轨迹与 config 垛位在同一系里对齐。
+const enrichMeasurements = (rows, rules, points, calibration) =>
   rows.map((row) => {
-    const matchedPoint = matchInspectionPoint(row, points);
-    const evaluation = evaluateMeasurement(row, rules);
+    const [posX, posY] = applyCalibration(row.pos_x, row.pos_y, calibration, row.area_id);
+    const calibratedRow = { ...row, pos_x: posX, pos_y: posY };
+    // 巡检批次一律按"标定后坐标"匹配, 显式忽略设备自报 point_id:
+    // 设备端点位是未标定/旧命名的猜测, 后端 matched_point_id 才是权威; 且若把带 point_id 的
+    // 行交给 matchInspectionPoint, 它会短路直接采信 point_id、跳过坐标匹配 ——
+    // 那样"改标定即追溯重匹配"就失效了(标定坐标根本没参与)。
+    const matchedPoint = matchInspectionPoint({ pos_x: posX, pos_y: posY }, points);
+    const evaluation = evaluateMeasurement(calibratedRow, rules);
     return {
       ...row,
       ts: toIsoString(row.ts),
       temp_c: toNumber(row.temp_c),
       rh: toNumber(row.rh),
-      pos_x: toNumber(row.pos_x),
-      pos_y: toNumber(row.pos_y),
+      pos_x: toNumber(posX),
+      pos_y: toNumber(posY),
       pos_z: toNumber(row.pos_z),
       yaw: toNumber(row.yaw),
       matched_point_id: matchedPoint?.id || null,
@@ -218,8 +228,8 @@ const enrichMeasurements = (rows, rules, points) =>
     };
   });
 
-const summarizeBatch = (rows, rules, points) => {
-  const measurements = enrichMeasurements(rows, rules, points);
+const summarizeBatch = (rows, rules, points, calibration) => {
+  const measurements = enrichMeasurements(rows, rules, points, calibration);
   const temp = metricStats(measurements, 'temp_c');
   const rh = metricStats(measurements, 'rh');
   const tempAbnormalCount = measurements.filter((row) => row.temp_abnormal).length;
@@ -279,6 +289,7 @@ const buildInspectionBatches = (
 ) => {
   const gapMinutes = Number(options.gapMinutes || DEFAULT_GAP_MINUTES);
   const timeZone = options.timeZone || DEFAULT_TIME_ZONE;
+  const calibration = options.calibration || null;
   const gapMs = gapMinutes * 60 * 1000;
   const rowsByDevice = new Map();
 
@@ -321,7 +332,7 @@ const buildInspectionBatches = (
 
     return {
       batch_no: `${dateKey}${String(sequence).padStart(2, '0')}`,
-      ...summarizeBatch(cleanRows, rules, points)
+      ...summarizeBatch(cleanRows, rules, points, calibration)
     };
   });
 };

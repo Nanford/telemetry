@@ -3,7 +3,7 @@
 INPUT : 一条 SLAM 轨迹(trail.json, 后端 /api/v1/slam/trail 的返回, 或任意 [{ts,pos_x,pos_y}] 列表)
 OUTPUT: 1) 识别出的"停留簇"(dwell)列表, 每簇=机器狗在某垛位长时间停留的真实 SLAM 坐标质心
         2) 一张可视化 PNG(轨迹 + 停留点 + 按巡检顺序分配的垛位标注)
-        3) 可选: 按巡检顺序把停留簇映射成 points.A-1-2.yaml(真实标定坐标, 替换示意网格)
+        3) 可选: 按巡检顺序把停留簇映射成 points.A-4-1.yaml(现场实测坐标, 替换 CAD 基准点)
 POS   : "序列法标定"的核心工具 —— 不依赖开机朝向/绝对坐标是否对齐, 只靠"遥控单程 + 每垛停留"
         这个既定事实, 把真实轨迹反推成真实垛位坐标。明天现场走一趟即完成标定。
 
@@ -13,7 +13,7 @@ POS   : "序列法标定"的核心工具 —— 不依赖开机朝向/绝对坐�
 
     # 顺带按巡检顺序生成真实坐标配置(明天标定走完后用)
     python tools/calibrate_from_trail.py --trail trail.json --out dwells.png \
-        --emit-yaml ../app/config/points.A-1-2.yaml --area A-1-2
+        --emit-yaml ../app/config/points.A-4-1.yaml --area A-4-1
 
 判据(可调):
     --cluster-r   0.5   同一停留簇内, 样本离簇质心的最大半径(m)
@@ -177,7 +177,7 @@ def main() -> None:
     ap.add_argument("--min-sec", type=float, default=12.0, help="有效停留最短秒数")
     ap.add_argument("--interval", type=float, default=5.0, help="采样间隔(s)")
     ap.add_argument("--emit-yaml", default=None, help="可选: 输出 points 配置路径")
-    ap.add_argument("--area", default="A-1-2", help="库房 area_id")
+    ap.add_argument("--area", default="A-4-1", help="库房 area_id")
     ap.add_argument("--radius", type=float, default=0.6, help="生成配置的匹配半径(m)")
     args = ap.parse_args()
 

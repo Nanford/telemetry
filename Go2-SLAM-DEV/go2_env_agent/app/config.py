@@ -23,6 +23,14 @@ def load_cfg() -> Dict[str, str]:
     cfg["SLAM_FRAME"] = os.getenv("SLAM_FRAME", "map").strip()
     cfg["GO2_POSE_STALE_SEC"] = os.getenv("GO2_POSE_STALE_SEC", "2.0").strip()
 
+    # 位姿健康检测(阶段B)。只打标不修正, 详见 providers/pose_health.py。
+    # 默认开启: 现场实测的 yaw 突跳在线上完全静默, 不开就等于没有任何失效信号。
+    cfg["POSE_HEALTH_ENABLE"] = os.getenv("POSE_HEALTH_ENABLE", "1").strip()
+    cfg["POSE_JUMP_DEG"] = os.getenv("POSE_JUMP_DEG", "15").strip()
+    cfg["POSE_STILL_M"] = os.getenv("POSE_STILL_M", "0.05").strip()
+    cfg["POSE_MAX_GAP_SEC"] = os.getenv("POSE_MAX_GAP_SEC", "15").strip()
+    cfg["POSE_DRIFT_DEG_MIN"] = os.getenv("POSE_DRIFT_DEG_MIN", "0.5").strip()
+
     # Point matching
     cfg["POINTS_FILE"] = os.getenv(
         "POINTS_FILE",

@@ -18,15 +18,32 @@ logging.basicConfig(
 log = logging.getLogger("go2-env-agent")
 
 
+def _wrap_pose_health(provider, cfg):
+    """给位姿源套上健康检测(只打标不修正)。关掉则原样返回, 行为与阶段A完全一致。"""
+    if cfg["POSE_HEALTH_ENABLE"] not in ("1", "true", "True", "yes"):
+        return provider
+    from app.providers.pose_health import PoseHealthGuard
+    return PoseHealthGuard(
+        provider,
+        jump_deg=float(cfg["POSE_JUMP_DEG"]),
+        still_m=float(cfg["POSE_STILL_M"]),
+        max_gap_sec=float(cfg["POSE_MAX_GAP_SEC"]),
+        drift_deg_min=float(cfg["POSE_DRIFT_DEG_MIN"]),
+    )
+
+
 def _build_position_provider(cfg):
     source = cfg["POSITION_SOURCE"]
     if source == "go2_slam":
         from app.providers.go2_pose_sdk import Go2PoseSDK
-        return Go2PoseSDK(
-            net_iface=cfg["GO2_NET_IFACE"],
-            topic=cfg["GO2_POSE_TOPIC"],
-            frame=cfg["SLAM_FRAME"],
-            stale_sec=float(cfg["GO2_POSE_STALE_SEC"]),
+        return _wrap_pose_health(
+            Go2PoseSDK(
+                net_iface=cfg["GO2_NET_IFACE"],
+                topic=cfg["GO2_POSE_TOPIC"],
+                frame=cfg["SLAM_FRAME"],
+                stale_sec=float(cfg["GO2_POSE_STALE_SEC"]),
+            ),
+            cfg,
         )
     elif source == "gps":
         from app.providers.sim7600_gnss import SIM7600Provider
@@ -84,12 +101,17 @@ def main():
         len(matcher.points),
     )
 
+    # 位姿健康计数定期落日志。突跳只写进单条 pose.error, 不汇总的话运维看不出"一共跳了几次"。
+    cycles = 0
     try:
         while not stop_flag["stop"]:
             try:
                 service.collect_once()
             except Exception as e:
                 log.error("collect error: %s", e)
+            cycles += 1
+            if cycles % 60 == 0 and hasattr(position_provider, "stats"):
+                log.info("pose health: %s", position_provider.stats())
             time.sleep(interval)
     finally:
         position_provider.stop()

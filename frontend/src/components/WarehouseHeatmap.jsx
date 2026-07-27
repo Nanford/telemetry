@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { getSlamPoints, getSlamReadings } from '../api.js';
+import CadDoor from './CadDoor.jsx';
 
 const POLL_MS = 30000;
 const FRESH_WINDOW_MS = 30 * 60 * 1000;
@@ -17,7 +18,7 @@ const RH_LIMIT = 65;
 const TEMP_FLOOR = 20;
 const RH_FLOOR = 45;
 
-// 与后端 A-1-2 点位配置对应：上下两排短垛，中间保持完整主通道。
+// 与后端 CAD 布局对应：上下两排垛位，中间保持完整主通道。
 const BAY_W = 1.28;
 const BAY_D = 3.2;
 const BAY_OFFSET = 0.25;
@@ -466,11 +467,14 @@ const WarehouseHeatmap = () => {
               ))}
 
               {area.door && (
-                <g aria-hidden="true">
-                  <rect x={fx(num(area.door.x)) - (num(area.door.width) || 4) / 2} y={fy(num(area.door.y)) - 0.16} width={num(area.door.width) || 4} height="0.32" rx="0.04"
-                    fill="rgba(37, 124, 202, 0.24)" stroke="rgba(122, 215, 255, 0.9)" strokeWidth="0.055" />
-                  <text x={fx(num(area.door.x))} y={fy(num(area.door.y)) - 0.32} textAnchor="middle" fontSize="0.34" fill="#bfeaff">南门 · 入口</text>
-                </g>
+                <CadDoor
+                  door={area.door}
+                  fx={fx}
+                  fy={fy}
+                  background="#07162d"
+                  stroke="#7ad7ff"
+                  labelFill="#bfeaff"
+                />
               )}
 
               {[width * 0.2, width * 0.5, width * 0.8].filter((x) => x < width - 0.4).map((x, index) => (
