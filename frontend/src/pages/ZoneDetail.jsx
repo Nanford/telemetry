@@ -17,6 +17,8 @@ const ZoneDetail = () => {
   const [trend, setTrend] = useState([]);
   // 当前时间窗为空时，这个库区最近一条数据的时间（null = 还没查/近 30 天一条都没有）
   const [lastSampleAt, setLastSampleAt] = useState(null);
+  // 曲线画的是不是"回落到最后一批数据"的历史快照（null = 画的是当前时间窗）
+  const [snapshotEndAt, setSnapshotEndAt] = useState(null);
 
   useEffect(() => {
     const load = async () => {
@@ -52,19 +54,24 @@ const ZoneDetail = () => {
         const num = typeof value === 'number' ? value : Number(value);
         return Number.isFinite(num) ? num : null;
       };
-      const series = (trendData.series || []).map((item) => ({
+      const toSeries = (raw) => (raw || []).map((item) => ({
         ts: item.ts,
         temp_c: toNumber(item.temp_c ?? item.temp_avg),
         rh: toNumber(item.rh ?? item.rh_avg)
       }));
-      setTrend(series);
 
-      // 时间窗里一条都没有时，回头查近 30 天，好告诉用户"数据停在什么时候"，
-      // 而不是把一张空图丢给他自己猜是没采到还是接口挂了。
+      const series = toSeries(trendData.series);
       if (series.length) {
+        setTrend(series);
         setLastSampleAt(null);
+        setSnapshotEndAt(null);
         return;
       }
+
+      // 当前窗口为空 = 采集停了，不是没有数据。先回查近 30 天定位最后一条的时间，
+      // 再以那个时间为终点重取同样长度的窗口，把最后一段真实曲线画出来。
+      // 早先只做到"探针"这一步，拿到时间只用于写一句提示，图仍然是空的——
+      // 停机期间整页看起来像坏了。
       const probeStart = new Date(end.getTime() - 30 * 24 * 3600 * 1000);
       const probe = await getTrend({
         zone_id: selectedZone,
@@ -73,7 +80,27 @@ const ZoneDetail = () => {
         bucket_minutes: 60
       });
       const probeSeries = probe.series || [];
-      setLastSampleAt(probeSeries.length ? probeSeries[probeSeries.length - 1].ts : null);
+      const lastTs = probeSeries.length ? probeSeries[probeSeries.length - 1].ts : null;
+      setLastSampleAt(lastTs);
+
+      if (!lastTs) {
+        setTrend([]);
+        setSnapshotEndAt(null);
+        return;
+      }
+
+      // 探针是 60 分钟桶，末桶起点早于真实末条数据，向后放宽一个桶避免截断尾部
+      const snapshotEnd = new Date(new Date(lastTs).getTime() + 3600 * 1000);
+      const snapshotStart = new Date(snapshotEnd.getTime() - range.hours * 3600 * 1000);
+      const snapshot = await getTrend({
+        zone_id: selectedZone,
+        start: snapshotStart.toISOString(),
+        end: snapshotEnd.toISOString(),
+        bucket_minutes: 5
+      });
+      const snapshotSeries = toSeries(snapshot.series);
+      setTrend(snapshotSeries);
+      setSnapshotEndAt(snapshotSeries.length ? lastTs : null);
     };
     load();
   }, [selectedZone, range]);
@@ -83,13 +110,21 @@ const ZoneDetail = () => {
     [zones, selectedZone]
   );
 
-  /** 空图上的说明文字：区分"这个窗口没数据"和"这个库区压根没数据"。 */
+  /** 空图上的说明文字。走到这里意味着连历史快照都取不到，即库区完全没数据。 */
   const emptyHint = useMemo(() => {
     if (!lastSampleAt) return `近 30 天内 ${selectedZone || '该库区'} 没有任何采集数据`;
     const last = new Date(lastSampleAt);
+    return `最近一条数据在 ${last.toLocaleString('zh-CN')}，但该时段聚合结果为空`;
+  }, [lastSampleAt, selectedZone]);
+
+  /** 历史快照横幅文案：说清数据截至何时、停更多久，避免旧曲线被当成实时。 */
+  const staleNote = useMemo(() => {
+    if (!snapshotEndAt) return '';
+    const last = new Date(snapshotEndAt);
     const hoursAgo = Math.round((Date.now() - last.getTime()) / 3600000);
-    return `近 ${range.label}内没有采集数据 · 最近一条在 ${last.toLocaleString('zh-CN')}（约 ${hoursAgo} 小时前）`;
-  }, [lastSampleAt, range, selectedZone]);
+    const ago = hoursAgo >= 48 ? `${Math.round(hoursAgo / 24)} 天` : `${hoursAgo} 小时`;
+    return `近 ${range.label}内无新数据 · 下方为最后一段实测曲线，数据截至 ${last.toLocaleString('zh-CN')}（已停更约 ${ago}）`;
+  }, [snapshotEndAt, range]);
 
   /**
    * 导出当前库区、当前时间窗的趋势序列为 CSV。
@@ -111,10 +146,14 @@ const ZoneDetail = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${selectedZone || 'zone'}_${range.hours}h_趋势.csv`;
+    // 导出的是历史快照时，把截止日期写进文件名，避免下载后分不清是哪一段
+    const suffix = snapshotEndAt
+      ? `快照截至${new Date(snapshotEndAt).toISOString().slice(0, 10)}`
+      : '趋势';
+    link.download = `${selectedZone || 'zone'}_${range.hours}h_${suffix}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [trend, selectedZone, range]);
+  }, [trend, selectedZone, range, snapshotEndAt]);
 
   return (
     <div className="page">
@@ -125,11 +164,12 @@ const ZoneDetail = () => {
           title="库区温湿度曲线"
           subtitle={
             trend.length
-              ? `${selectedZoneMeta?.description || '趋势详情'} · 5 分钟聚合 · ${trend.length} 个数据点`
+              ? `${selectedZoneMeta?.description || '趋势详情'} · 5 分钟聚合 · ${trend.length} 个数据点${snapshotEndAt ? ' · 历史快照' : ''}`
               : `${selectedZoneMeta?.description || '趋势详情'} · 5 分钟聚合`
           }
           data={trend}
           emptyHint={emptyHint}
+          staleNote={staleNote}
           actions={(
             <div className="chart-controls">
               <select

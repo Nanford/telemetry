@@ -71,6 +71,14 @@ Single Express server that doubles as MQTT consumer — no separate worker proce
 ## Important Conventions
 
 - All timestamps stored in UTC. MySQL pool timezone is `'Z'`.
+- **Display windows anchor to the last data point, not to `now`.** Views that show "the current state"
+  (patrol trail, heat field, zone cards, zone trend) must not filter by `UTC_TIMESTAMP() - INTERVAL n`
+  or `Date.now() - n`. When collection stops, a wall-clock window slides past the last real reading and
+  the UI empties out — indistinguishable from a broken system. Instead anchor the window to `MAX(ts)`
+  (backend) or the last item's `ts` (frontend), keep the window *width* unchanged, and surface staleness
+  explicitly: an amber "历史快照" banner (`.inspection-map-stale-banner` / `.chart-stale-banner`) or an
+  `offline` status with a 已停更 duration. Never let stale data render as if it were live.
+  Wall-clock windows remain correct for genuine "last 24h" aggregates (e.g. `/overview` summary stats).
 - MQTT topic parsing supports both `devices/{id}/telemetry` and `devices/{id}/{zone}/telemetry`.
 - Frontend mock fallback is automatic — no flag needed. If `fetch` throws, mock data is returned.
 - No test suite or linter is configured.

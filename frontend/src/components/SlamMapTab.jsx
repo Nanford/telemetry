@@ -38,15 +38,30 @@ const formatAge = (timestamp) => {
   const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
   if (seconds < 60) return `${seconds}s 前`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m 前`;
-  return `${Math.floor(seconds / 3600)}h 前`;
+  // 设备可能停机数天，只给小时数会出现「已停更 128h」这种要心算的文案。
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h 前`;
+  return `${Math.floor(seconds / 86400)}天前`;
+};
+
+/** 绝对时间文案：陈旧徽标要给出「数据截至什么时候」，光有相对时长不够定位。 */
+const formatStamp = (timestamp) => {
+  const time = timeMs(timestamp);
+  if (!time) return '--';
+  return new Date(time).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
 };
 
 /**
- * 轨迹裁剪：先按时间窗兜底（防止长时间挂着页面无限增长），
- * 再收口到最近一次巡检——一轮巡检 20 分钟以上，按 1 小时窗口画会把 2~3 轮叠成乱线。
+ * 轨迹裁剪：时间窗兜底 + 收口到最近一次巡检。
+ *
+ * 时间窗锚在最后一条数据上，不是 Date.now()——与后端 pruneSlamTrail 同一套判据。
+ * 锚在墙上时钟时，机器人停机满 1 小时轨迹就被裁空，地图凭空变白；
+ * 锚在数据上，巡检中表现不变，停机后保留最后一轮，由 header 徽标说明停更时长。
  */
 const pruneTrail = (items = []) => {
-  const cutoff = Date.now() - TRAIL_WINDOW_MS;
+  const lastMs = items.length ? timeMs(items[items.length - 1].ts) : 0;
+  const cutoff = lastMs > 0 ? lastMs - TRAIL_WINDOW_MS : 0;
   const recent = items.filter((item) => timeMs(item.ts) >= cutoff).slice(-TRAIL_LIMIT);
   return takeLatestBatch(recent, { gapMinutes: BATCH_GAP_MINUTES });
 };
@@ -235,12 +250,18 @@ const SlamMapTab = () => {
     return result;
   }, [mappedPoints, readings]);
 
-  const freshReadings = useMemo(() => {
-    const cutoff = Date.now() - FRESH_WINDOW_MS;
-    return new Map(Array.from(latestReadings.entries()).filter(([, reading]) => timeMs(reading.ts) >= cutoff));
-  }, [latestReadings]);
+  // 直接展示各点位的最新读数，不再按「距今 30 分钟」过滤。
+  // 过滤掉的后果是：设备一停机，点位读数、异常计数、详情面板同时清零，
+  // 而热力图那边（/slam/readings 取 MAX(ts)，无时间窗）读数还在——同一份数据
+  // 两个页面结论相反。新鲜度改由 isStale 徽标统一表达，数据本身始终保留。
+  const displayReadings = latestReadings;
 
-  const latestTimestamp = useMemo(() => Math.max(0, ...Array.from(latestReadings.values()).map((reading) => timeMs(reading.ts))), [latestReadings]);
+  const latestTimestamp = useMemo(() => {
+    const readingTimes = Array.from(latestReadings.values()).map((reading) => timeMs(reading.ts));
+    // 只有轨迹没有读数的场景（例如遥控走位标定）也要能算出数据时点
+    const trailTimes = trail.map((item) => timeMs(item.ts));
+    return Math.max(0, ...readingTimes, ...trailTimes);
+  }, [latestReadings, trail]);
 
   if (error && !area) return <div className="page-error">{error}</div>;
   // 加载中用同款深色卡片占位，避免白色占位框闪烁/跳动。
@@ -286,13 +307,15 @@ const SlamMapTab = () => {
       columnXs.push((northCenters[index] + northCenters[index + 1]) / 2);
     }
   }
-  const abnormalCount = Array.from(freshReadings.values()).filter((reading) => num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT).length;
+  const abnormalCount = Array.from(displayReadings.values()).filter((reading) => num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT).length;
   const selectedPoint = mappedPoints.find((point) => point.id === selectedPointId) || null;
-  const selectedReading = selectedPoint ? freshReadings.get(selectedPoint.id) : null;
+  const selectedReading = selectedPoint ? displayReadings.get(selectedPoint.id) : null;
   const dimensionLabel = bounds.configured
     ? `${formatMetric(area.width)}m × ${formatMetric(area.height)}m`
     : '按已标定点位推导';
   const isStale = latestTimestamp > 0 && Date.now() - latestTimestamp > FRESH_WINDOW_MS;
+  const latestIso = latestTimestamp ? new Date(latestTimestamp).toISOString() : null;
+  const hasData = latestTimestamp > 0;
 
   // 垛体矩形优先用配置的真实几何(point.bay，米制 CAD 坐标)；缺失时按固定尺寸从点位反推。
   const getBay = (point) => {
@@ -335,8 +358,10 @@ const SlamMapTab = () => {
         </div>
 
         <div className="inspection-map-header-right">
+          {/* SSE 连着不等于有数据在流。停更时优先报"最后更新"，
+              否则"实时通道已连接"会给出一切正常的错觉。 */}
           <span className={`inspection-map-live-status ${streamOnline && !isStale ? '' : 'stale'}`}>
-            <i /> {streamOnline ? '实时通道已连接' : latestTimestamp ? `最后更新 ${formatAge(new Date(latestTimestamp).toISOString())}` : '等待巡检数据'}
+            <i /> {!hasData ? '等待巡检数据' : isStale ? `最后更新 ${formatAge(latestIso)}` : streamOnline ? '实时通道已连接' : `最后更新 ${formatAge(latestIso)}`}
           </span>
           <span className="inspection-map-status-note">越界位置与未标定读数不显示</span>
         </div>
@@ -344,10 +369,19 @@ const SlamMapTab = () => {
 
       {error && <div className="inspection-map-error">{error}</div>}
 
-      <div className="inspection-map-stat-strip">
-        <span>在线设备 <strong>{visibleDevices.length}</strong></span>
+      {/* 停更时展示的是最后一轮巡检的历史快照。必须显式说明数据时点，
+          否则一张静止的轨迹图和实时图长得一模一样，会被当成"正在巡检"。 */}
+      {isStale && (
+        <div className="inspection-map-stale-banner" role="status">
+          <strong>历史快照</strong>
+          <span>数据截至 {formatStamp(latestIso)} · 已停更 {formatAge(latestIso)} · 非实时</span>
+        </div>
+      )}
+
+      <div className={`inspection-map-stat-strip${isStale ? ' is-stale' : ''}`}>
+        <span>{isStale ? '最后一轮设备' : '在线设备'} <strong>{visibleDevices.length}</strong></span>
         <span>有效轨迹 <strong>{trailPointCount}</strong></span>
-        <span>已匹配点位 <strong>{freshReadings.size} / {mappedPoints.length}</strong></span>
+        <span>已匹配点位 <strong>{displayReadings.size} / {mappedPoints.length}</strong></span>
         <span className={abnormalCount ? 'inspection-map-bad' : ''}>阈值异常 <strong>{abnormalCount}</strong></span>
         <span className="inspection-map-source-note">坐标范围 {dimensionLabel}</span>
       </div>
@@ -376,7 +410,7 @@ const SlamMapTab = () => {
 
             {mappedPoints.filter((point) => point.kind !== 'aisle').map((point) => {
               const bay = getBay(point);
-              const reading = freshReadings.get(point.id);
+              const reading = displayReadings.get(point.id);
               const abnormal = reading && (num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT);
               const shelfCount = Math.max(4, Math.round(bay.h));
               return (
@@ -424,7 +458,7 @@ const SlamMapTab = () => {
             {showTrail && trailSegments.flat().map((item, index) => (index % 3 === 0 ? <circle key={`trail-dot-${index}`} cx={fx(num(item.pos_x))} cy={fy(num(item.pos_y))} r="0.055" fill="#b7fff0" /> : null))}
 
             {mappedPoints.map((point) => {
-              const reading = freshReadings.get(point.id);
+              const reading = displayReadings.get(point.id);
               const abnormal = reading && (num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT);
               const selected = point.id === selectedPointId;
               return (
@@ -467,7 +501,7 @@ const SlamMapTab = () => {
             <>
               <span>已选点位</span>
               <strong>{selectedPoint.id} · {selectedPoint.name}</strong>
-              {selectedReading ? <b>{Number(selectedReading.temp_c).toFixed(1)}℃ <em>/</em> {Number(selectedReading.rh).toFixed(0)}%RH</b> : <small>当前没有该点位的新鲜读数</small>}
+              {selectedReading ? <b>{Number(selectedReading.temp_c).toFixed(1)}℃ <em>/</em> {Number(selectedReading.rh).toFixed(0)}%RH</b> : <small>该点位尚无采集读数</small>}
               {selectedReading && <small>由 {selectedReading.device_id || '巡检设备'} 在 {formatAge(selectedReading.ts)} 采集</small>}
               <button type="button" onClick={() => setSelectedPointId(null)}>取消选择</button>
             </>
@@ -477,7 +511,7 @@ const SlamMapTab = () => {
         </div>
       </div>
 
-      <footer className="inspection-map-footer">A-4-1 CAD 基准：东门进出、南排东→西、西端换道、北排西→东；实时轨迹只显示最近一次巡检（间隔超过 30 分钟即算新一轮），且仅限仓间内位置。</footer>
+      <footer className="inspection-map-footer">A-4-1 CAD 基准：东门进出、南排东→西、西端换道、北排西→东；轨迹只显示最近一次巡检（间隔超过 30 分钟即算新一轮），且仅限仓间内位置。设备停机时保留最后一轮，顶部标注数据时点。</footer>
     </section>
   );
 };

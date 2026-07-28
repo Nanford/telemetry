@@ -42,6 +42,17 @@ let mqttClient = null;
 
 const SLAM_TRAIL_WINDOW_MS = 60 * 60 * 1000;
 const SLAM_TRAIL_LIMIT = 2000;
+// 库区卡片超过这个时长未上报即判为停更（读数仍展示，状态改为 offline）
+const ZONE_STALE_MS = 24 * 60 * 60 * 1000;
+
+/** 停更时长的中文短文案，供库区卡片的 status_reason 使用。 */
+const formatStaleAge = (timestampMs) => {
+  const minutes = Math.max(0, Math.round((Date.now() - timestampMs) / 60000));
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} 小时`;
+  return `${Math.round(hours / 24)} 天`;
+};
 // 与 inspection-batches 的 DEFAULT_GAP_MINUTES 一致：间隔超过 30 分钟即算新一轮巡检。
 const SLAM_BATCH_GAP_MS = 30 * 60 * 1000;
 const slamLiveState = {
@@ -142,12 +153,20 @@ const toSlamLivePoint = (telemetry) => {
 /**
  * 实时轨迹裁剪：时间窗兜底 + 收口到最近一次巡检。
  *
- * 只按时间窗留会把 2~3 轮巡检一起发给前端（一轮 20 分钟以上），画在同一张图上就是乱线。
- * 批次判据与 inspection-batches 一致：采集间隔超过 SLAM_BATCH_GAP_MS 即为新一轮。
+ * 关键在于时间窗锚在**最后一条数据**上，而不是 Date.now()。
+ * 锚在墙上时钟的话，机器人停机满 1 小时后整条轨迹会被裁空，地图凭空变白
+ * ——那是时钟在走，不是数据出了问题，用户看到的却是「系统坏了」。
+ * 锚在数据上，窗口永远贴着最后一段真实轨迹：巡检中表现不变（窗口右端就是此刻），
+ * 停机后保留最后一轮，由前端打陈旧徽标说明停更时长。
+ *
+ * 时间窗之外仍按批次收口：采集间隔超过 SLAM_BATCH_GAP_MS 即为新一轮
+ * （与 inspection-batches 一致），避免连续数据下把 2~3 轮叠成乱线。
  */
 const pruneSlamTrail = () => {
-  const cutoff = Date.now() - SLAM_TRAIL_WINDOW_MS;
-  const recent = slamLiveState.trail
+  const trail = slamLiveState.trail;
+  const lastMs = trail.length ? parseTelemetryTimeMs(trail[trail.length - 1].ts) : 0;
+  const cutoff = Number.isFinite(lastMs) && lastMs > 0 ? lastMs - SLAM_TRAIL_WINDOW_MS : 0;
+  const recent = trail
     .filter((point) => parseTelemetryTimeMs(point.ts) >= cutoff)
     .slice(-SLAM_TRAIL_LIMIT);
 
@@ -164,11 +183,26 @@ const pruneSlamTrail = () => {
   slamLiveState.trail = recent.slice(startIndex);
 };
 
+/** 一组轨迹点里最后一条的时间戳（ISO 串）；空数组返回 null。 */
+const trailDataAsOf = (trail) => {
+  let latest = 0;
+  for (const point of trail) {
+    const time = parseTelemetryTimeMs(point.ts);
+    if (Number.isFinite(time) && time > latest) latest = time;
+  }
+  return latest ? new Date(latest).toISOString() : null;
+};
+
 const getSlamLiveSnapshot = () => {
   pruneSlamTrail();
+  const trail = slamLiveState.trail;
+  const latest = Array.from(slamLiveState.latestByDevice.values());
+  // data_as_of 让前端能区分「实时」与「最后一轮的历史快照」，
+  // 停更时长由前端按本地时钟算，避免前后端时钟偏差写死在响应里。
   return {
-    latest: Array.from(slamLiveState.latestByDevice.values()),
-    trail: slamLiveState.trail
+    latest,
+    trail,
+    data_as_of: trailDataAsOf(trail) || trailDataAsOf(latest)
   };
 };
 
@@ -201,6 +235,48 @@ onTelemetry((telemetry) => {
   publishSlamLivePoint(point);
 });
 
+/**
+ * 开机从库里回填最近一轮巡检轨迹。
+ *
+ * slamLiveState 是纯内存态，进程一重启就空——机器人没在跑的时段重启后端，
+ * 地图会一直空白到下一轮巡检开始。这里按 ts 倒序取一批（倒序才能保证
+ * 拿到的是最新的一段），交给 pruneSlamTrail 收口到最后一个批次。
+ * 失败不阻断启动：回填只影响首屏观感，MQTT 新数据照常进内存。
+ */
+const restoreSlamTrailFromDb = async () => {
+  // LIMIT 用模板串内联而非占位符：db.query 走的是 pool.execute（预处理语句），
+  // LIMIT ? 在部分 MySQL 版本会报 Incorrect arguments to EXECUTE。
+  // SLAM_TRAIL_LIMIT 是代码内常量，不经外部输入，内联无注入风险。
+  const [rows] = await query(`
+    SELECT device_id, pos_x, pos_y, pos_z, yaw, point_id, area_id,
+           temp_c, rh, ts, pose_source, pose_fix
+    FROM telemetry_raw
+    WHERE pose_source = 'go2_slam'
+      AND pose_fix = 1
+      AND pos_x IS NOT NULL AND pos_y IS NOT NULL
+    ORDER BY ts DESC
+    LIMIT ${SLAM_TRAIL_LIMIT}
+  `);
+
+  const points = rows
+    .slice()
+    .reverse()
+    .map(toSlamLivePoint)
+    .filter(Boolean);
+  if (!points.length) return 0;
+
+  slamLiveState.trail = points;
+  pruneSlamTrail();
+
+  for (const point of slamLiveState.trail) {
+    const previous = slamLiveState.latestByDevice.get(point.device_id);
+    if (!previous || parseTelemetryTimeMs(point.ts) >= parseTelemetryTimeMs(previous.ts)) {
+      slamLiveState.latestByDevice.set(point.device_id, point);
+    }
+  }
+  return slamLiveState.trail.length;
+};
+
 app.get('/api/v1/health', async (_req, res) => {
   ok(res, { status: 'ok', time: new Date().toISOString() });
 });
@@ -208,6 +284,10 @@ app.get('/api/v1/health', async (_req, res) => {
 app.get('/api/v1/overview', async (_req, res) => {
   try {
     const [zones] = await query('SELECT zone_id, name, description FROM zones ORDER BY zone_id');
+    // 不设 24 小时窗口：取各库区最后一条读数，无论多久以前。
+    // 加窗口的话，采集一停满 24 小时，所有库区卡片同时变成「暂无最新数据」，
+    // 看起来像系统故障；实际数据一直都在，只是不新鲜。
+    // 新鲜度由下面的 ZONE_STALE_MS 判定改写 status，绝不把陈旧读数报成「运行正常」。
     const [latestRows] = await query(`
       SELECT tr.zone_id, tr.temp_c, tr.rh, tr.ts
       FROM telemetry_raw tr
@@ -215,7 +295,6 @@ app.get('/api/v1/overview', async (_req, res) => {
         SELECT zone_id, MAX(ts) AS max_ts
         FROM telemetry_raw
         WHERE zone_id IS NOT NULL
-          AND ts >= (UTC_TIMESTAMP() - INTERVAL 24 HOUR)
           AND (temp_c IS NOT NULL OR rh IS NOT NULL)
         GROUP BY zone_id
       ) latest ON tr.zone_id = latest.zone_id AND tr.ts = latest.max_ts
@@ -240,7 +319,15 @@ app.get('/api/v1/overview', async (_req, res) => {
       let status = 'offline';
       let statusReason = '无最新数据';
 
-      if (latest) {
+      // 超过 ZONE_STALE_MS 未上报即判为停更：读数照常展示（附采集时间），
+      // 但状态不能是「运行正常」——那等于拿一天前的数字保证此刻的仓内环境。
+      const latestMs = latest ? parseTelemetryTimeMs(latest.ts) : 0;
+      const isZoneStale = latestMs > 0 && Date.now() - latestMs > ZONE_STALE_MS;
+
+      if (latest && isZoneStale) {
+        status = 'offline';
+        statusReason = `已停更 ${formatStaleAge(latestMs)}`;
+      } else if (latest) {
         status = 'ok';
         statusReason = '运行正常';
         const rulesForZone = ruleMap.get(zone.zone_id) || [];
@@ -660,10 +747,41 @@ app.get('/api/v1/slam/latest', async (_req, res) => {
   }
 });
 
+/**
+ * 取「最后一条数据的时间」作为时间窗锚点。
+ *
+ * 用 UTC_TIMESTAMP() 当锚点的窗口会随墙上时钟滑走：设备停机 N 分钟后
+ * 接口就返回空数组，前端只能画一张空图。锚定到 MAX(ts) 后，窗口永远
+ * 贴着最后一段真实数据，停机期间返回的是「最后一轮」而不是「什么都没有」。
+ * 返回 null 表示这批过滤条件下库里一条数据都没有。
+ *
+ * @param {string} whereSql 附加过滤条件（不含 WHERE 关键字），与取数 SQL 保持一致
+ * @param {Array} params 对应的占位符参数
+ * @returns {Promise<string|null>} MySQL datetime 串
+ */
+const latestTelemetryAnchor = async (whereSql, params) => {
+  const [rows] = await query(
+    `SELECT MAX(ts) AS anchor FROM telemetry_raw WHERE ${whereSql}`,
+    params
+  );
+  const anchor = rows[0]?.anchor;
+  return anchor ? toMysqlDatetime(new Date(anchor)) : null;
+};
+
 app.get('/api/v1/slam/trail', async (req, res) => {
   try {
     const deviceId = req.query.device_id;
     const minutes = Number(req.query.minutes || 60);
+
+    const baseWhere = `
+      pose_source = 'go2_slam'
+      AND pose_fix = 1
+      AND pos_x IS NOT NULL AND pos_y IS NOT NULL
+      ${deviceId ? 'AND device_id = ?' : ''}
+    `;
+    const baseParams = deviceId ? [deviceId] : [];
+    const anchor = await latestTelemetryAnchor(baseWhere, baseParams);
+    if (!anchor) return ok(res, []);
 
     let sql = `
       SELECT ts, pos_x, pos_y, point_id, device_id, area_id
@@ -671,9 +789,9 @@ app.get('/api/v1/slam/trail', async (req, res) => {
       WHERE pose_source = 'go2_slam'
         AND pose_fix = 1
         AND pos_x IS NOT NULL AND pos_y IS NOT NULL
-        AND ts >= (UTC_TIMESTAMP() - INTERVAL ? MINUTE)
+        AND ts >= (? - INTERVAL ? MINUTE)
     `;
-    const params = [minutes];
+    const params = [anchor, minutes];
     if (deviceId) { sql += ' AND device_id = ?'; params.push(deviceId); }
     // 必须按 ts DESC 截断再反转：ASC + LIMIT 会把**最新**的一段丢掉，
     // 对一个"实时轨迹"接口正好截反了（点数超过 500 时前端只能看到最旧的部分）。
@@ -717,6 +835,19 @@ app.get('/api/v1/slam/field', async (req, res) => {
       ? Math.max(1, Number(req.query.minutes))
       : 180;
 
+    // 同样锚定到最后一条数据，而非墙上时钟：停机后热力场保留最后一轮实测，
+    // 由前端按 ts 打陈旧徽标，不冒充实时。
+    const baseWhere = `
+      pose_source = 'go2_slam'
+      AND pose_fix = 1
+      AND pos_x IS NOT NULL AND pos_y IS NOT NULL
+      AND (temp_c IS NOT NULL OR rh IS NOT NULL)
+      ${deviceId ? 'AND device_id = ?' : ''}
+    `;
+    const baseParams = deviceId ? [deviceId] : [];
+    const anchor = await latestTelemetryAnchor(baseWhere, baseParams);
+    if (!anchor) return ok(res, []);
+
     let sql = `
       SELECT ts, pos_x, pos_y, temp_c, rh, device_id, area_id
       FROM telemetry_raw
@@ -724,9 +855,9 @@ app.get('/api/v1/slam/field', async (req, res) => {
         AND pose_fix = 1
         AND pos_x IS NOT NULL AND pos_y IS NOT NULL
         AND (temp_c IS NOT NULL OR rh IS NOT NULL)
-        AND ts >= (UTC_TIMESTAMP() - INTERVAL ? MINUTE)
+        AND ts >= (? - INTERVAL ? MINUTE)
     `;
-    const params = [minutes];
+    const params = [anchor, minutes];
     if (deviceId) { sql += ' AND device_id = ?'; params.push(deviceId); }
     sql += ' ORDER BY ts ASC LIMIT 2000';
 
@@ -1154,6 +1285,13 @@ const bootstrap = async () => {
   const migrations = await ensureTelemetrySchema(query);
   if (migrations.length) {
     console.log(`[schema] applied ${migrations.length} telemetry change(s)`);
+  }
+
+  try {
+    const restored = await restoreSlamTrailFromDb();
+    console.log(`[slam] restored ${restored} trail point(s) from db`);
+  } catch (err) {
+    console.error('[slam] trail restore failed', err.message);
   }
 
   server = app.listen(config.port, () => {

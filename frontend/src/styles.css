@@ -1863,6 +1863,34 @@ body::after {
   font-size: 13px;
 }
 
+/* 趋势图的历史快照横幅，与巡检地图 .inspection-map-stale-banner 同一套视觉语言：
+   琥珀色 = 数据真实但不新鲜，区别于红色告警。 */
+.chart-stale-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  color: #ffd089;
+  font-size: 12px;
+  line-height: 1.5;
+  background: rgba(255, 172, 88, 0.1);
+  border: 1px solid rgba(255, 172, 88, 0.32);
+  border-radius: 8px;
+}
+
+.chart-stale-banner strong {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  color: #2a1a05;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: #ffac58;
+  border-radius: 4px;
+}
+
 .batch-trend-chart {
   min-height: 300px;
 }
@@ -2481,6 +2509,32 @@ body::after {
   border-radius: 8px;
 }
 
+/* 陈旧快照横幅：设备停机时展示最后一轮数据，必须一眼看出"这不是实时的"。
+   用琥珀色而非红色——数据本身是真实的，只是不新鲜，不该按告警呈现。 */
+.inspection-map-stale-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 20px 0;
+  padding: 10px 14px;
+  color: #ffd089;
+  font-size: 12px;
+  background: rgba(255, 172, 88, 0.1);
+  border: 1px solid rgba(255, 172, 88, 0.32);
+  border-radius: 8px;
+}
+
+.inspection-map-stale-banner strong {
+  padding: 2px 8px;
+  color: #2a1a05;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: #ffac58;
+  border-radius: 4px;
+}
+
 .inspection-map-stat-strip {
   display: flex;
   align-items: center;
@@ -2493,6 +2547,10 @@ body::after {
   background: rgba(4, 21, 44, 0.88);
   border-bottom: 1px solid rgba(101, 200, 255, 0.16);
 }
+
+/* 快照态整条统计降饱和，和实时态在余光里就能区分开 */
+.inspection-map-stat-strip.is-stale { color: rgba(255, 208, 137, 0.72); }
+.inspection-map-stat-strip.is-stale strong { color: #ffd089; }
 
 .inspection-map-stat-strip strong {
   margin-left: 5px;

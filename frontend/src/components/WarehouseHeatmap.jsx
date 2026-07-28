@@ -129,7 +129,19 @@ const formatAge = (timestamp) => {
   const seconds = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 1000));
   if (seconds < 60) return `${seconds}s 前`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m 前`;
-  return `${Math.floor(seconds / 3600)}h 前`;
+  // 停机可能持续数天，只给小时数会出现「128h 前」这种要心算的文案
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h 前`;
+  return `${Math.floor(seconds / 86400)}天前`;
+};
+
+/** 绝对时间文案：陈旧横幅要说清「数据截至什么时候」。 */
+const formatStamp = (timestamp) => {
+  if (!timestamp) return '--';
+  const time = new Date(timestamp).getTime();
+  if (!Number.isFinite(time)) return '--';
+  return new Date(time).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
 };
 
 const WarehouseHeatmap = () => {
@@ -213,18 +225,20 @@ const WarehouseHeatmap = () => {
     return result;
   }, [mappedPoints, readings]);
 
-  const stackSamples = useMemo(() => {
-    const freshAfter = Date.now() - FRESH_WINDOW_MS;
-    return mappedPoints
+  // 取各点位最新读数，不按「距今 30 分钟」过滤。
+  // 过滤会让巡检一停就整张热力场清空——但数据源 /slam/readings 取的是
+  // MAX(ts)，读数一直都在，消失的只是展示。新鲜度由 isStale 徽标表达，
+  // 停机时呈现的是「最后一轮实测温度场」，而不是一片空白。
+  const stackSamples = useMemo(() => (
+    mappedPoints
       .map((point) => {
         const reading = latestReadings.get(point.id);
-        const timestamp = reading ? new Date(reading.ts).getTime() : 0;
         const value = reading ? num(reading[modeMeta.key]) : null;
-        if (!reading || timestamp < freshAfter || value === null) return null;
+        if (!reading || value === null) return null;
         return { id: point.id, name: point.name, x: num(point.x), y: num(point.y), v: value, ts: reading.ts };
       })
-      .filter(Boolean);
-  }, [latestReadings, mappedPoints, modeMeta]);
+      .filter(Boolean)
+  ), [latestReadings, mappedPoints, modeMeta]);
 
   const sampleByPointId = useMemo(
     () => new Map(stackSamples.map((sample) => [sample.id, sample])),
@@ -362,6 +376,18 @@ const WarehouseHeatmap = () => {
           </span>
         </div>
       </header>
+
+      {/* 停机时画的是最后一轮实测温度场。静止的热力图和实时热力图外观完全一致，
+          必须显式标注数据时点，否则会被当成"当前仓内温度"。 */}
+      {isStale && (
+        <div className="inspection-map-stale-banner" role="status">
+          <strong>历史快照</strong>
+          <span>
+            数据截至 {formatStamp(new Date(latestTimestamp).toISOString())} ·
+            已停更 {formatAge(new Date(latestTimestamp).toISOString())} · 非当前温度场
+          </span>
+        </div>
+      )}
 
       <div className="heatmap-stat-strip">
         <span>平均 <strong>{average === null ? '--' : formatValue(average)}</strong></span>

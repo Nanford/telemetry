@@ -34,7 +34,12 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-const TrendChart = ({ data, title, subtitle, actions, emptyHint }) => (
+/**
+ * @param {string} [staleNote] 非空时在图上方挂一条琥珀色横幅，说明画的是历史快照
+ *                             而非当前时间窗的数据。曲线本身不做视觉弱化——
+ *                             读数是真实的，弱化会让人怀疑数值准确性。
+ */
+const TrendChart = ({ data, title, subtitle, actions, emptyHint, staleNote }) => (
   <div className="card chart-card">
     <div className="card-header">
       <div>
@@ -49,6 +54,12 @@ const TrendChart = ({ data, title, subtitle, actions, emptyHint }) => (
         </div>
       </div>
     </div>
+    {staleNote && (
+      <div className="chart-stale-banner" role="status">
+        <strong>历史快照</strong>
+        <span>{staleNote}</span>
+      </div>
+    )}
     {/* 没数据时不能照画坐标轴——空网格看起来和"曲线贴着 0"没区别,
         会让人以为读数是 0 而不是没采到。宁可明说这个时间窗是空的。 */}
     {!data?.length ? (
