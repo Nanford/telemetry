@@ -43,8 +43,8 @@ assert.deepStrictEqual(
   config.slam.area,
   {
     area_id: 'A-4-1',
-    name: 'A-4-1 仓间（A4 左下）',
-    description: 'A4 区左下仓间，巡检由东门进入',
+    name: 'A-4-1 仓间',
+    description: '巡检由东门进入',
     width: 55.99,
     height: 36.35,
     aisle: { y0: 16.85, y1: 20.85 },
@@ -57,7 +57,7 @@ assert.deepStrictEqual(
       coordinate_system: 'southwest-local-meters'
     }
   },
-  '默认巡检区域必须与 A4 左下仓间 CAD 一致'
+  '默认巡检区域必须与 A-4-1 仓间 CAD 一致'
 );
 
 const bayPoints = config.slam.points.filter((point) => point.kind === 'bay');

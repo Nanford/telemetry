@@ -34,7 +34,7 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-const TrendChart = ({ data, title, subtitle, actions }) => (
+const TrendChart = ({ data, title, subtitle, actions, emptyHint }) => (
   <div className="card chart-card">
     <div className="card-header">
       <div>
@@ -49,6 +49,11 @@ const TrendChart = ({ data, title, subtitle, actions }) => (
         </div>
       </div>
     </div>
+    {/* 没数据时不能照画坐标轴——空网格看起来和"曲线贴着 0"没区别,
+        会让人以为读数是 0 而不是没采到。宁可明说这个时间窗是空的。 */}
+    {!data?.length ? (
+      <div className="chart-empty">{emptyHint || '所选时间窗内没有采集数据'}</div>
+    ) : (
     <div className="chart-body">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 10, right: 24, left: 8, bottom: 18 }}>
@@ -95,6 +100,7 @@ const TrendChart = ({ data, title, subtitle, actions }) => (
         </LineChart>
       </ResponsiveContainer>
     </div>
+    )}
   </div>
 );
 

@@ -389,7 +389,7 @@ Windows 端需确保：
 
 ```bash
 # /etc/telemetry-agent.env
-MQTT_HOST=dht.leenf.online
+MQTT_HOST=windoor.leenf.online
 MQTT_PORT=1883
 MQTT_USERNAME=telemetry_user
 MQTT_PASSWORD=<密码>

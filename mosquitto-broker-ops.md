@@ -1,7 +1,7 @@
 # 云端 MQTT Broker 部署与运维手册（Mosquitto）
 
 > 适用场景：Debian 云服务器部署 Mosquitto，作为烟叶库区温湿度/GPS 巡检平台的 MQTT 消息中枢。
-> 本文以 **38.12.141.63** 为例；域名场景（如 `dht.leenf.online`）切 TLS 时另见 §9。
+> 本文以 **38.12.141.63** 为例；域名场景（如 `windoor.leenf.online`）切 TLS 时另见 §9。
 
 ---
 
@@ -458,16 +458,16 @@ acl_file /etc/mosquitto/acl
 
 ## 9. TLS 升级（8883）
 
-前提：已有域名（如 `dht.leenf.online`）解析到本机，且已用 `certbot` 签好证书。
+前提：已有域名（如 `windoor.leenf.online`）解析到本机，且已用 `certbot` 签好证书。
 
 ### 9.1 Mosquitto 配置追加
 
 ```conf
 # 追加到 /etc/mosquitto/conf.d/telemetry.conf
 listener 8883 0.0.0.0
-cafile   /etc/letsencrypt/live/dht.leenf.online/chain.pem
-certfile /etc/letsencrypt/live/dht.leenf.online/cert.pem
-keyfile  /etc/letsencrypt/live/dht.leenf.online/privkey.pem
+cafile   /etc/letsencrypt/live/windoor.leenf.online/chain.pem
+certfile /etc/letsencrypt/live/windoor.leenf.online/cert.pem
+keyfile  /etc/letsencrypt/live/windoor.leenf.online/privkey.pem
 ```
 
 ### 9.2 证书权限（关键）
@@ -475,8 +475,8 @@ keyfile  /etc/letsencrypt/live/dht.leenf.online/privkey.pem
 Let's Encrypt 私钥默认只有 root 可读，Mosquitto 启动进程读不到会报错。
 
 ```bash
-sudo chgrp mosquitto /etc/letsencrypt/live/dht.leenf.online/privkey.pem
-sudo chmod 640 /etc/letsencrypt/live/dht.leenf.online/privkey.pem
+sudo chgrp mosquitto /etc/letsencrypt/live/windoor.leenf.online/privkey.pem
+sudo chmod 640 /etc/letsencrypt/live/windoor.leenf.online/privkey.pem
 ```
 
 ### 9.3 证书续签钩子
@@ -489,8 +489,8 @@ sudo nano /etc/letsencrypt/renewal-hooks/post/mosquitto-reload.sh
 
 ```bash
 #!/bin/bash
-chgrp mosquitto /etc/letsencrypt/live/dht.leenf.online/privkey.pem
-chmod 640 /etc/letsencrypt/live/dht.leenf.online/privkey.pem
+chgrp mosquitto /etc/letsencrypt/live/windoor.leenf.online/privkey.pem
+chmod 640 /etc/letsencrypt/live/windoor.leenf.online/privkey.pem
 systemctl reload mosquitto
 ```
 
@@ -509,7 +509,7 @@ sudo ufw allow 8883/tcp
 
 ```bash
 # /etc/telemetry-agent.env
-MQTT_HOST=dht.leenf.online   # ⚠️ 必须用域名，用 IP 会 TLS 握手失败（SNI/证书名不匹配）
+MQTT_HOST=windoor.leenf.online   # ⚠️ 必须用域名，用 IP 会 TLS 握手失败（SNI/证书名不匹配）
 MQTT_PORT=8883
 MQTT_TLS=1
 MQTT_CA_CERT=/etc/ssl/certs/ca-certificates.crt
@@ -522,7 +522,7 @@ sudo systemctl restart telemetry-agent
 ### 9.6 TLS 测试
 
 ```bash
-mosquitto_sub -h dht.leenf.online -p 8883 \
+mosquitto_sub -h windoor.leenf.online -p 8883 \
   --cafile /etc/ssl/certs/ca-certificates.crt \
   -u telemetry_user -P '密码' -t 'devices/#' -v
 ```

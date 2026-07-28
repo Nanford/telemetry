@@ -84,8 +84,10 @@ const points = BAYS.map(([number, x, row]) => ({
 
 const area = {
   area_id: AREA_ID,
-  name: 'A-4-1 仓间（A4 左下）',
-  description: 'A4 区左下仓间，巡检由东门进入',
+  // 显示名只留仓间号：「A4 左下」是 A4 楼里的方位，对天天看这个页面的人是冗余信息，
+  // 而且会把热力图/巡检地图的卡片标题撑长（2026-07-28 用户要求去掉）。
+  name: 'A-4-1 仓间',
+  description: '巡检由东门进入',
   width: AREA_WIDTH,
   height: AREA_HEIGHT,
   aisle: { y0: AISLE.y0, y1: AISLE.y1 },

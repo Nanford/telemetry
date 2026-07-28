@@ -274,8 +274,8 @@ const mockA41Bands = {
 export const mockSlamPoints = {
   area: {
     area_id: 'A-4-1',
-    name: 'A-4-1 仓间（A4 左下）',
-    description: 'A4 区左下仓间，巡检由东门进入',
+    name: 'A-4-1 仓间',
+    description: '巡检由东门进入',
     width: 55.99,
     height: 36.35,
     aisle: { y0: 16.85, y1: 20.85 },

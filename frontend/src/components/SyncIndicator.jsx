@@ -30,7 +30,18 @@ const useFreshness = () => {
 
   useEffect(() => onConnectionChange(setStatus), []);
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), TICK_MS);
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      // notify() 只在 mock↔真实切换时广播，而首次加载是 false→false（没切换），
+      // 只靠订阅的话 lastSuccessAt 永远停在 null，链路正常反而显示"尚未连接"。
+      // 这里借已有的 1Hz 计时顺手拉一次快照；没变化就返回原对象，不产生额外渲染。
+      setStatus((prev) => {
+        const next = getConnectionStatus();
+        return prev.lastSuccessAt === next.lastSuccessAt && prev.isMock === next.isMock
+          ? prev
+          : next;
+      });
+    }, TICK_MS);
     return () => clearInterval(timer);
   }, []);
 

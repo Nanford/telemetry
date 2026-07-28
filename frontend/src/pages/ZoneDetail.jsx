@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import TrendChart from '../components/TrendChart.jsx';
 import WarehouseHeatmap from '../components/WarehouseHeatmap.jsx';
-import { getZones, getTrend, getSensors } from '../api.js';
+import { getZones, getTrend, getSensors, getSlamPoints } from '../api.js';
 
 const ranges = [
   { label: '12 小时', hours: 12 },
@@ -15,14 +15,21 @@ const ZoneDetail = () => {
   const [selectedZone, setSelectedZone] = useState('');
   const [range, setRange] = useState(ranges[1]);
   const [trend, setTrend] = useState([]);
+  // 当前时间窗为空时，这个库区最近一条数据的时间（null = 还没查/近 30 天一条都没有）
+  const [lastSampleAt, setLastSampleAt] = useState(null);
 
   useEffect(() => {
     const load = async () => {
-      const zoneData = await getZones();
+      // 默认库区必须跟随后端的「当前巡检区域」(config.slam.area)，不能取列表首项：
+      // /zones 是按 zone_id 字典序返回的，首项永远是已停用的 A-1-2，而活跃区是 A-4-1。
+      // 走接口而非硬编码，后端换仓间时前端自动跟随。
+      const [zoneData, slamConfig] = await Promise.all([getZones(), getSlamPoints()]);
       setZones(zoneData);
-      if (zoneData.length) {
-        setSelectedZone(zoneData[0].zone_id);
-      }
+      if (!zoneData.length) return;
+
+      const activeAreaId = slamConfig?.area?.area_id;
+      const hasActiveArea = activeAreaId && zoneData.some((zone) => zone.zone_id === activeAreaId);
+      setSelectedZone(hasActiveArea ? activeAreaId : zoneData[0].zone_id);
     };
     load();
   }, []);
@@ -51,6 +58,22 @@ const ZoneDetail = () => {
         rh: toNumber(item.rh ?? item.rh_avg)
       }));
       setTrend(series);
+
+      // 时间窗里一条都没有时，回头查近 30 天，好告诉用户"数据停在什么时候"，
+      // 而不是把一张空图丢给他自己猜是没采到还是接口挂了。
+      if (series.length) {
+        setLastSampleAt(null);
+        return;
+      }
+      const probeStart = new Date(end.getTime() - 30 * 24 * 3600 * 1000);
+      const probe = await getTrend({
+        zone_id: selectedZone,
+        start: probeStart.toISOString(),
+        end: end.toISOString(),
+        bucket_minutes: 60
+      });
+      const probeSeries = probe.series || [];
+      setLastSampleAt(probeSeries.length ? probeSeries[probeSeries.length - 1].ts : null);
     };
     load();
   }, [selectedZone, range]);
@@ -59,6 +82,14 @@ const ZoneDetail = () => {
     () => zones.find((zone) => zone.zone_id === selectedZone),
     [zones, selectedZone]
   );
+
+  /** 空图上的说明文字：区分"这个窗口没数据"和"这个库区压根没数据"。 */
+  const emptyHint = useMemo(() => {
+    if (!lastSampleAt) return `近 30 天内 ${selectedZone || '该库区'} 没有任何采集数据`;
+    const last = new Date(lastSampleAt);
+    const hoursAgo = Math.round((Date.now() - last.getTime()) / 3600000);
+    return `近 ${range.label}内没有采集数据 · 最近一条在 ${last.toLocaleString('zh-CN')}（约 ${hoursAgo} 小时前）`;
+  }, [lastSampleAt, range, selectedZone]);
 
   /**
    * 导出当前库区、当前时间窗的趋势序列为 CSV。
@@ -92,8 +123,13 @@ const ZoneDetail = () => {
       <div className="panel-grid">
         <TrendChart
           title="库区温湿度曲线"
-          subtitle={`${selectedZoneMeta?.description || '趋势详情'} · 5 分钟聚合`}
+          subtitle={
+            trend.length
+              ? `${selectedZoneMeta?.description || '趋势详情'} · 5 分钟聚合 · ${trend.length} 个数据点`
+              : `${selectedZoneMeta?.description || '趋势详情'} · 5 分钟聚合`
+          }
           data={trend}
+          emptyHint={emptyHint}
           actions={(
             <div className="chart-controls">
               <select
