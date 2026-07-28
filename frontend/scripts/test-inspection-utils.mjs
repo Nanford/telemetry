@@ -8,7 +8,8 @@ import {
   createDefaultInspectionRange,
   formatDuration,
   getInspectionStatusMeta,
-  sampleMeasurements
+  sampleMeasurements,
+  takeLatestBatch
 } from '../src/lib/inspection.js';
 
 assert.equal(formatDuration(76), '1分16秒');
@@ -167,3 +168,26 @@ assert.equal(wideProjection.projectY(0), 75);      // 底边居中上移 (100-50
 assert.equal(wideProjection.projectY(1), 25);
 
 console.log('inspection-utils: OK');
+
+// —— takeLatestBatch：轨迹只保留最近一轮巡检（2026-07-28）——
+const lapA = Array.from({ length: 5 }, (_, i) => ({
+  ts: new Date(Date.UTC(2026, 6, 28, 2, 0, i * 5)).toISOString(), pos_x: i, pos_y: 0
+}));
+const lapB = Array.from({ length: 4 }, (_, i) => ({
+  ts: new Date(Date.UTC(2026, 6, 28, 3, 0, i * 5)).toISOString(), pos_x: i, pos_y: 1
+}));
+
+// 两轮之间隔了 1 小时 > 30 分钟，只应留下后一轮
+assert.deepEqual(takeLatestBatch([...lapA, ...lapB]), lapB);
+// 单轮内部不该被切开
+assert.deepEqual(takeLatestBatch(lapA), lapA);
+// 空输入与非数组不能抛
+assert.deepEqual(takeLatestBatch([]), []);
+assert.deepEqual(takeLatestBatch(null), []);
+// 间隔阈值可调：设成 90 分钟后两轮算同一批
+assert.equal(takeLatestBatch([...lapA, ...lapB], { gapMinutes: 90 }).length, 9);
+// ts 缺失的点不应导致误切
+const withBadTs = [{ ts: 'not-a-date', pos_x: 0, pos_y: 0 }, ...lapB];
+assert.equal(takeLatestBatch(withBadTs).length, 5);
+
+console.log('takeLatestBatch: OK');

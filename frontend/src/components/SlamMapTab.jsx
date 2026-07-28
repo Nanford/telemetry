@@ -6,12 +6,14 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createSlamStream, getSlamLive, getSlamPoints, getSlamReadings } from '../api.js';
-import { buildTrailSegments, computeMapGridStep, formatMetric } from '../lib/inspection.js';
+import { buildTrailSegments, computeMapGridStep, formatMetric, takeLatestBatch } from '../lib/inspection.js';
 import CadDoor from './CadDoor.jsx';
 
 const POLL_MS = 5000;
 const TRAIL_WINDOW_MS = 60 * 60 * 1000;
 const TRAIL_LIMIT = 2000;
+// 与后端 inspection-batches 的批次判据一致：采集间隔超过 30 分钟即算新一轮巡检。
+const BATCH_GAP_MINUTES = 30;
 const FRESH_WINDOW_MS = 30 * 60 * 1000;
 const MAP_PADDING = 0.75;
 const TEMP_LIMIT = 32;
@@ -39,9 +41,14 @@ const formatAge = (timestamp) => {
   return `${Math.floor(seconds / 3600)}h 前`;
 };
 
+/**
+ * 轨迹裁剪：先按时间窗兜底（防止长时间挂着页面无限增长），
+ * 再收口到最近一次巡检——一轮巡检 20 分钟以上，按 1 小时窗口画会把 2~3 轮叠成乱线。
+ */
 const pruneTrail = (items = []) => {
   const cutoff = Date.now() - TRAIL_WINDOW_MS;
-  return items.filter((item) => timeMs(item.ts) >= cutoff).slice(-TRAIL_LIMIT);
+  const recent = items.filter((item) => timeMs(item.ts) >= cutoff).slice(-TRAIL_LIMIT);
+  return takeLatestBatch(recent, { gapMinutes: BATCH_GAP_MINUTES });
 };
 
 const withinBounds = (x, y, bounds) => {
@@ -470,7 +477,7 @@ const SlamMapTab = () => {
         </div>
       </div>
 
-      <footer className="inspection-map-footer">A-4-1 CAD 基准：东门进出、南排东→西、西端换道、北排西→东；实时轨迹只保留近 1 小时的仓间内位置。</footer>
+      <footer className="inspection-map-footer">A-4-1 CAD 基准：东门进出、南排东→西、西端换道、北排西→东；实时轨迹只显示最近一次巡检（间隔超过 30 分钟即算新一轮），且仅限仓间内位置。</footer>
     </section>
   );
 };

@@ -214,6 +214,44 @@ export const computeInspectionMapLayout = ({
  * @param {Object} options { maxGapMs=30000, maxSpeedMps=2, bounds=null }
  * @returns {Array<Array>} 分段结果；仅含 1 个点的段由调用方画成单点
  */
+/**
+ * 只保留最近一次巡检的轨迹点。
+ *
+ * 巡检地图原先按"近 1 小时"的墙上时钟取轨迹，而真机一轮巡检要 20 分钟以上，
+ * 1 小时窗口必然把 2~3 轮叠在同一张图上，看起来像乱线（2026-07-28 用户反馈）。
+ * 批次边界沿用后端 inspection-batches 的判据：相邻两条采集间隔超过 gapMs 即为新一轮。
+ *
+ * 注意与 buildTrailSegments 的分工：这里决定"画哪一段时间的点"，
+ * 那里决定"哪些相邻点之间可以连线"。两者都需要，缺一不可。
+ *
+ * @param {Array} trail 按时间升序的轨迹点（元素含 ts）
+ * @param {Object} options { gapMinutes=30 }
+ * @returns {Array} 最近一轮的轨迹点
+ */
+export const takeLatestBatch = (trail = [], options = {}) => {
+  const { gapMinutes = 30 } = options;
+  if (!Array.isArray(trail) || trail.length === 0) return [];
+
+  const gapMs = gapMinutes * 60 * 1000;
+  const timeOf = (item) => {
+    const parsed = new Date(item?.ts).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  // 从最新一条往回走，遇到超过 gapMs 的断档就停——断档之前属于上一轮。
+  let startIndex = 0;
+  for (let index = trail.length - 1; index > 0; index -= 1) {
+    const current = timeOf(trail[index]);
+    const previous = timeOf(trail[index - 1]);
+    if (current === null || previous === null) continue;
+    if (current - previous > gapMs) {
+      startIndex = index;
+      break;
+    }
+  }
+  return trail.slice(startIndex);
+};
+
 export const buildTrailSegments = (trail = [], options = {}) => {
   const { maxGapMs = 30000, maxSpeedMps = 2, bounds = null } = options;
   const segments = [];

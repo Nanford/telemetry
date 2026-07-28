@@ -42,6 +42,8 @@ let mqttClient = null;
 
 const SLAM_TRAIL_WINDOW_MS = 60 * 60 * 1000;
 const SLAM_TRAIL_LIMIT = 2000;
+// 与 inspection-batches 的 DEFAULT_GAP_MINUTES 一致：间隔超过 30 分钟即算新一轮巡检。
+const SLAM_BATCH_GAP_MS = 30 * 60 * 1000;
 const slamLiveState = {
   latestByDevice: new Map(),
   trail: []
@@ -137,11 +139,29 @@ const toSlamLivePoint = (telemetry) => {
   };
 };
 
+/**
+ * 实时轨迹裁剪：时间窗兜底 + 收口到最近一次巡检。
+ *
+ * 只按时间窗留会把 2~3 轮巡检一起发给前端（一轮 20 分钟以上），画在同一张图上就是乱线。
+ * 批次判据与 inspection-batches 一致：采集间隔超过 SLAM_BATCH_GAP_MS 即为新一轮。
+ */
 const pruneSlamTrail = () => {
   const cutoff = Date.now() - SLAM_TRAIL_WINDOW_MS;
-  slamLiveState.trail = slamLiveState.trail
+  const recent = slamLiveState.trail
     .filter((point) => parseTelemetryTimeMs(point.ts) >= cutoff)
     .slice(-SLAM_TRAIL_LIMIT);
+
+  let startIndex = 0;
+  for (let index = recent.length - 1; index > 0; index -= 1) {
+    const current = parseTelemetryTimeMs(recent[index].ts);
+    const previous = parseTelemetryTimeMs(recent[index - 1].ts);
+    if (!Number.isFinite(current) || !Number.isFinite(previous)) continue;
+    if (current - previous > SLAM_BATCH_GAP_MS) {
+      startIndex = index;
+      break;
+    }
+  }
+  slamLiveState.trail = recent.slice(startIndex);
 };
 
 const getSlamLiveSnapshot = () => {
@@ -655,10 +675,12 @@ app.get('/api/v1/slam/trail', async (req, res) => {
     `;
     const params = [minutes];
     if (deviceId) { sql += ' AND device_id = ?'; params.push(deviceId); }
-    sql += ' ORDER BY ts ASC LIMIT 500';
+    // 必须按 ts DESC 截断再反转：ASC + LIMIT 会把**最新**的一段丢掉，
+    // 对一个"实时轨迹"接口正好截反了（点数超过 500 时前端只能看到最旧的部分）。
+    sql += ' ORDER BY ts DESC LIMIT 500';
 
     const [rows] = await query(sql, params);
-    ok(res, calibrateRows(rows));
+    ok(res, calibrateRows(rows.slice().reverse()));
   } catch (err) {
     fail(res, err.message, 500);
   }
