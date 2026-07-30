@@ -2725,3 +2725,79 @@ body::after {
   .inspection-map-source-note { width: 100%; margin-left: 0; }
   .inspection-map-detail { display: grid; grid-template-columns: 1fr; padding: 14px; }
 }
+
+/* 平面图缩放框：缩到 1× 以下时由 useSvgZoom 的 frameStyle 按比例收窄这一层，
+   高度靠 svg 的 height:auto 自动跟着变矮，卡片整体变紧凑。
+   这一层的尺寸会变，所以缩放控件不放在里面（放里面按钮会跟着图跑）。 */
+.map-zoom-frame {
+  margin-inline: auto;
+  transition: width 0.16s ease;
+}
+
+/* 平面图缩放控件（热力图 / 巡检地图 / 批次详情图共用，见 lib/useSvgZoom.js） */
+.map-zoom-controls {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(114, 209, 255, 0.34);
+  border-radius: 9px;
+  background: rgba(6, 19, 38, 0.86);
+  box-shadow: 0 8px 20px rgba(0, 8, 24, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.map-zoom-controls button {
+  /* 要放得下最宽的倍率读数「1.35×」 */
+  width: 38px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: #cfe9ff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.map-zoom-controls button + button {
+  border-top: 1px solid rgba(114, 209, 255, 0.18);
+}
+
+.map-zoom-controls button:hover:not(:disabled),
+.map-zoom-controls button:focus-visible:not(:disabled) {
+  background: rgba(47, 125, 255, 0.28);
+  color: #ffffff;
+  outline: none;
+}
+
+.map-zoom-controls button:disabled {
+  color: rgba(207, 233, 255, 0.28);
+  cursor: default;
+}
+
+/* 倍率读数兼作复位按钮，字号要小一档才放得下「1.0×」 */
+.map-zoom-controls .map-zoom-reset {
+  height: 26px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* 三张图的画布都有 20px 内边距，30px 让控件正好落在图框内侧 10px 处。
+   锚点是画布（尺寸不随缩放变化），所以按钮位置全程固定。 */
+.map-zoom-controls--inset {
+  top: 30px;
+  right: 30px;
+}
+
+@media (max-width: 680px) {
+  .map-zoom-controls--inset {
+    top: 28px;
+    right: 28px;
+  }
+}

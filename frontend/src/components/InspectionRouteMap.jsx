@@ -5,6 +5,7 @@
  * OUTPUT: 巡检路线与温湿度点位 SVG。
  * POS: 批次详情页地图。等比投影（x/y 同一 scale + 居中）保证轨迹角度不失真；
  *      实际轨迹经 buildTrailSegments 分段，断档/跳变/出界处不跨洞直连。
+ *      缩放平移由 useSvgZoom 提供（受控 viewBox），投影本身不受缩放影响。
  */
 import React, { useMemo, useState } from 'react';
 import {
@@ -14,6 +15,8 @@ import {
   formatDateTime,
   formatMetric
 } from '../lib/inspection.js';
+import { useSvgZoom } from '../lib/useSvgZoom.js';
+import MapZoomControls from './MapZoomControls.jsx';
 
 const FRAME = { x: 48, y: 34, width: 1184 };
 // top/bottomPadding 是给悬停卡片预留的图内留白。卡片高 94~118, 上沿被 clamp 到 FRAME.y+28,
@@ -35,6 +38,13 @@ const InspectionRouteMap = ({
     () => computeInspectionMapLayout({ area, points, trail: actualTrail }),
     [area, points, actualTrail]
   );
+
+  // Hook 不能条件调用，缩放状态必须在「无坐标」早退分支之前建立。
+  // layout.canvas 在无 bounds 时也有兜底尺寸，这里可以直接取。
+  const zoom = useSvgZoom({
+    baseWidth: layout.canvas.width,
+    baseHeight: layout.canvas.height
+  });
 
   if (!layout.bounds) {
     return <div className="map-empty-state">暂无可用于绘图的点位或轨迹坐标</div>;
@@ -118,12 +128,20 @@ const InspectionRouteMap = ({
         </div>
       </div>
 
+      {/* 这张图的容器高度由 aspect-ratio 决定，而缩放控件又必须锚在这一层上，
+          所以缩小段不能像另外两张图那样收窄宽度——一收窄按钮就跟着图往里跑。
+          改为压扁宽高比：宽度保持不变，高度按 scale 变矮，svg 靠
+          preserveAspectRatio="meet" 自动居中缩小，卡片同样跟着变矮。 */}
       <div
         className="inspection-map-canvas"
-        style={{ '--inspection-map-ratio': `${canvas.width} / ${canvas.height}` }}
+        style={{
+          '--inspection-map-ratio':
+            `${canvas.width} / ${canvas.height * Math.min(1, zoom.scale)}`
+        }}
       >
         <svg
-          viewBox={`0 0 ${canvas.width} ${canvas.height}`}
+          {...zoom.svgProps}
+          viewBox={zoom.viewBox}
           preserveAspectRatio="xMidYMid meet"
           role="img"
           aria-label={`${areaName}巡检路线与温湿度点位图`}
@@ -534,6 +552,8 @@ const InspectionRouteMap = ({
             );
           })}
         </svg>
+
+        <MapZoomControls zoom={zoom} className="map-zoom-controls--inset" />
 
         {actualTrail.length === 0 && (
           <div className="inspection-map-empty">

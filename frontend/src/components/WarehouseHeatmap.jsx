@@ -4,10 +4,15 @@
  * 只使用已标定到 point_id 的新鲜读数：每条读数必须能对应到库位配置坐标，
  * 且坐标位于当前仓间范围内。未标定、缺失 point_id 或越界的原始 SLAM 数据
  * 不参与平面图绘制，避免把真实但尚未校准的数据错误投射到库位平面图上。
+ *
+ * 缩放平移由 useSvgZoom 提供（受控 viewBox），绘图坐标全部保持米制原样，
+ * 不受缩放影响；热力底图是 28px/m 的位图，放大到 4× 以上会有可见模糊。
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { getSlamPoints, getSlamReadings } from '../api.js';
+import { useSvgZoom } from '../lib/useSvgZoom.js';
 import CadDoor from './CadDoor.jsx';
+import MapZoomControls from './MapZoomControls.jsx';
 
 const POLL_MS = 30000;
 const FRESH_WINDOW_MS = 30 * 60 * 1000;
@@ -262,6 +267,18 @@ const WarehouseHeatmap = () => {
     return Number.isFinite(timestamp) && timestamp > latest ? timestamp : latest;
   }, 0), [latestReadings]);
 
+  // viewBox 基准尺寸：缩放交互要在「加载中」的早退分支之前拿到，Hook 不能条件调用。
+  // bounds 未就绪时给 1×1 占位，useSvgZoom 内部会跳过计算并在尺寸变化时自动复位。
+  const viewBoxSize = useMemo(() => {
+    if (!bounds) return { width: 1, height: 1 };
+    return {
+      width: bounds.maxX - bounds.minX + MAP_PADDING * 2,
+      height: bounds.maxY - bounds.minY + MAP_PADDING * 2
+    };
+  }, [bounds]);
+
+  const zoom = useSvgZoom({ baseWidth: viewBoxSize.width, baseHeight: viewBoxSize.height });
+
   const isStale = latestTimestamp > 0 && Date.now() - latestTimestamp > FRESH_WINDOW_MS;
   const values = stackSamples.map((sample) => sample.v);
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
@@ -283,8 +300,6 @@ const WarehouseHeatmap = () => {
 
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
-  const viewWidth = width + MAP_PADDING * 2;
-  const viewHeight = height + MAP_PADDING * 2;
   const floorX = MAP_PADDING;
   const floorY = MAP_PADDING;
   const fx = (x) => x - bounds.minX + MAP_PADDING;
@@ -398,8 +413,10 @@ const WarehouseHeatmap = () => {
       </div>
 
       <div className="heatmap-canvas">
-        <div className="slam-floor heatmap-floor">
-          <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${area.name}${modeMeta.label}CAD平面图`}>
+        {/* 缩到 1× 以下时这一层按比例收窄，svg 的 height:auto 让卡片跟着变矮。
+            缩放控件不能放这里面——那样图一缩控件就跟着往里跑，连点两下都要追着按。 */}
+        <div className="slam-floor heatmap-floor map-zoom-frame" style={zoom.frameStyle}>
+          <svg {...zoom.svgProps} viewBox={zoom.viewBox} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${area.name}${modeMeta.label}CAD平面图`}>
             <defs>
               <clipPath id="warehouse-floor-clip">
                 <rect x={floorX} y={floorY} width={width} height={height} rx="0.08" />
@@ -526,7 +543,11 @@ const WarehouseHeatmap = () => {
                     role="button"
                     tabIndex="0"
                     aria-label={`${sample.name}，${formatValue(sample.v)}`}
-                    onClick={() => setSelectedPointId(selected ? null : sample.id)}
+                    onClick={() => {
+                      // 拖拽平移结束时浏览器仍会补一次 click，这里吞掉，避免误选测点
+                      if (zoom.shouldIgnoreClick()) return;
+                      setSelectedPointId(selected ? null : sample.id);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
@@ -559,6 +580,9 @@ const WarehouseHeatmap = () => {
             )}
           </svg>
         </div>
+
+        {/* 锚在画布层（尺寸不随缩放变化），按钮位置全程固定 */}
+        <MapZoomControls zoom={zoom} className="map-zoom-controls--inset" />
 
         <aside className="heatmap-focus-card" aria-live="polite">
           <span className="heatmap-focus-label">{selectedSample ? '当前选中点位' : '点位数据说明'}</span>

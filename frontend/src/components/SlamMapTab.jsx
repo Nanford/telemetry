@@ -3,11 +3,17 @@
  *
  * 平面图只投射当前仓间边界内的已配置点位、轨迹和设备位置。越界或无法定位的
  * 原始上报不会扩张画布，也不会被推测到某个库位，确保巡检视图与实际仓间保持一致。
+ *
+ * 缩放平移由 useSvgZoom 提供（受控 viewBox）。拖拽结束时浏览器补发的 click 在
+ * onClick 处被吞掉，避免拖完地图顺手选中一个点位；键盘 Enter/Space 走 onKeyDown
+ * 不经过这层判断，否则拖过一次之后键盘就再也选不中点位了。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createSlamStream, getSlamLive, getSlamPoints, getSlamReadings } from '../api.js';
 import { buildTrailSegments, computeMapGridStep, formatMetric, takeLatestBatch } from '../lib/inspection.js';
+import { useSvgZoom } from '../lib/useSvgZoom.js';
 import CadDoor from './CadDoor.jsx';
+import MapZoomControls from './MapZoomControls.jsx';
 
 const POLL_MS = 5000;
 const TRAIL_WINDOW_MS = 60 * 60 * 1000;
@@ -263,6 +269,17 @@ const SlamMapTab = () => {
     return Math.max(0, ...readingTimes, ...trailTimes);
   }, [latestReadings, trail]);
 
+  // viewBox 基准尺寸必须在「加载中」早退分支之前算出来——Hook 不能条件调用。
+  const viewBoxSize = useMemo(() => {
+    if (!bounds) return { width: 1, height: 1 };
+    return {
+      width: bounds.maxX - bounds.minX + MAP_PADDING * 2,
+      height: bounds.maxY - bounds.minY + MAP_PADDING * 2
+    };
+  }, [bounds]);
+
+  const zoom = useSvgZoom({ baseWidth: viewBoxSize.width, baseHeight: viewBoxSize.height });
+
   if (error && !area) return <div className="page-error">{error}</div>;
   // 加载中用同款深色卡片占位，避免白色占位框闪烁/跳动。
   if (!area || !bounds) {
@@ -275,8 +292,6 @@ const SlamMapTab = () => {
 
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
-  const viewWidth = width + MAP_PADDING * 2;
-  const viewHeight = height + MAP_PADDING * 2;
   const fx = (x) => x - bounds.minX + MAP_PADDING;
   const fy = (y) => bounds.maxY - y + MAP_PADDING;
   const gridStep = computeMapGridStep(Math.max(width, height), 32);
@@ -388,8 +403,9 @@ const SlamMapTab = () => {
 
       <div className="inspection-map-canvas inspection-map-canvas--slam">
         <div className="inspection-map-mobile-hint">东门为巡检起点 · 左右滑动查看完整仓间</div>
-        <div className="inspection-map-floor" ref={floorRef}>
-          <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid meet">
+        {/* map-zoom-frame：缩到 1× 以下时按比例收窄这一层，卡片跟着变矮 */}
+        <div className="inspection-map-floor map-zoom-frame" ref={floorRef} style={zoom.frameStyle}>
+          <svg {...zoom.svgProps} viewBox={zoom.viewBox} preserveAspectRatio="xMidYMid meet">
             <defs>
               <filter id="robotGlow" x="-100%" y="-100%" width="300%" height="300%">
                 <feGaussianBlur stdDeviation="0.12" result="blur" />
@@ -462,7 +478,7 @@ const SlamMapTab = () => {
               const abnormal = reading && (num(reading.temp_c) > TEMP_LIMIT || num(reading.rh) > RH_LIMIT);
               const selected = point.id === selectedPointId;
               return (
-                <g key={`point-${point.id}`} className="inspection-map-point" role="button" tabIndex="0" aria-label={`${point.id} ${point.name || ''} ${reading ? `${reading.temp_c}摄氏度 ${reading.rh}%湿度` : '暂无新鲜读数'}`} onClick={() => activatePoint(point.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activatePoint(point.id); } }}>
+                <g key={`point-${point.id}`} className="inspection-map-point" role="button" tabIndex="0" aria-label={`${point.id} ${point.name || ''} ${reading ? `${reading.temp_c}摄氏度 ${reading.rh}%湿度` : '暂无新鲜读数'}`} onClick={() => { if (!zoom.shouldIgnoreClick()) activatePoint(point.id); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activatePoint(point.id); } }}>
                   {selected && <circle cx={fx(num(point.x))} cy={fy(num(point.y))} r="0.38" fill="none" stroke="#f5d777" strokeWidth="0.045" />}
                   <circle cx={fx(num(point.x))} cy={fy(num(point.y))} r={point.kind === 'aisle' ? '0.1' : '0.17'} fill={abnormal ? '#ff7382' : point.kind === 'aisle' ? '#8fb8ff' : '#2f7dff'} stroke="#e9f7ff" strokeWidth="0.04" />
                   {showReadings && reading && <text x={fx(num(point.x))} y={fy(num(point.y)) - 0.3} textAnchor="middle" fontSize="0.25" fontWeight="700" fill={abnormal ? '#ff9aa4' : '#91f2d0'}>{Number(reading.temp_c).toFixed(1)}° / {Number(reading.rh).toFixed(0)}%</text>}
@@ -488,6 +504,9 @@ const SlamMapTab = () => {
             })}
           </svg>
         </div>
+
+        {/* 锚在画布层（尺寸不随缩放变化），按钮位置全程固定 */}
+        <MapZoomControls zoom={zoom} className="map-zoom-controls--inset" />
 
         <div className="inspection-map-legend" aria-label="地图图例">
           <span><i className="legend-path" /> 实际轨迹</span>
